@@ -1,7 +1,11 @@
-use iced::widget::{
-    Column, button, column,
-    text_editor::{self, Content},
-    text_input,
+use iced::{
+    Task,
+    widget::{
+        Column, button, column,
+        operation::focus,
+        text_editor::{self, Content},
+        text_input,
+    },
 };
 
 #[derive(Debug, Default, Clone)]
@@ -22,20 +26,24 @@ enum Message {
     WindowClosed,
 }
 
-fn update(state: &mut Ornis, message: Message) {
+fn update(state: &mut Ornis, message: Message) -> Task<Message> {
     match message {
         Message::EnterPressed => {
-            state.scrollback.push("enter".into());
+            state.scrollback.push(state.input.clone());
             state.content = Content::with_text(state.scrollback.join("\n").as_str());
+            state.input.clear();
         }
         Message::ContentChanged(new_input) => {
             state.input = new_input;
         }
         Message::WindowOpened => {
             state.scrollback = vec!["=== welcome to ornith ===".into()];
+            state.content = Content::with_text(state.scrollback.join("\n").as_str());
+            return focus(MAIN_INPUT_ID);
         }
-        _ => return,
+        _ => return Task::none(),
     }
+    Task::none()
 }
 
 const MAIN_INPUT_ID: &'static str = "main_input";
@@ -45,7 +53,7 @@ fn view(state: &Ornis) -> Column<'_, Message> {
         text_editor::TextEditor::new(&state.content)
             .size(14)
             .height(iced::FillPortion(9)),
-        text_input::TextInput::new("commands go here", "")
+        text_input::TextInput::new("commands go here", &state.input)
             .id(MAIN_INPUT_ID)
             .padding(10)
             .size(14)
@@ -53,6 +61,8 @@ fn view(state: &Ornis) -> Column<'_, Message> {
             .on_submit(Message::EnterPressed),
         button("enter").on_press(Message::EnterPressed),
     ]
+    .spacing(10)
+    .into()
 }
 
 fn subscription(_state: &Ornis) -> iced::Subscription<Message> {

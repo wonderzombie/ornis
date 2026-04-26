@@ -35,15 +35,47 @@ enum Message {
     ResultsReady(BrpResponse),
 }
 
-#[derive(Default, Debug, Copy, Clone)]
-enum Command {
-    #[default]
-    Noop,
-    WorldQuery,
+macro_rules! enum_with_str {
+    ( $enum_name:ident, $( $variant:ident($val:expr) ),* $(,)? ) => {
+        #[derive(Default, Debug, Eq, PartialEq, Copy, Clone, Hash)]
+        pub enum $enum_name {
+            #[default]
+            Unset,
+            $( $variant, )*
+        }
+
+        #[allow(dead_code)]
+        impl $enum_name {
+            pub fn all() -> &'static [$enum_name] {
+                &[ $( $enum_name::$variant, )* ]
+            }
+
+            pub fn pairs() -> &'static [(&'static str, $enum_name)] {
+                &[ $( (stringify!($variant), $enum_name::$variant), )* ]
+            }
+
+            pub fn from_str(value: impl AsRef<str>) -> Option<$enum_name> {
+                Self::pairs().iter().find(|(s, _)| value.as_ref() == *s).copied().map(|(_, v)| v)
+            }
+        }
+    };
 }
 
+enum_with_str!(
+    Command,
+    Query("world.query"),
+    ListResources("world.list_resources"),
+    ListComponent("world.list_components"),
+);
+
 fn handle_command(_ornis: &mut Ornis) -> Message {
-    handle_world_query()
+    let lower = _ornis.input.to_ascii_lowercase();
+    let command = Command::from_str(lower).ok_or(Command::Unset);
+
+    match command {
+        Ok(Command::Query) => handle_world_query(),
+        _ => Message::Noop,
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize)]

@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+mod rpc;
 
 use anyhow::anyhow;
 use iced::{
@@ -13,9 +13,10 @@ use iced::{
 };
 use log::{LevelFilter, error, info, trace};
 use reqwest::{self, blocking};
-use serde::{Deserialize, Serialize};
-use serde_json::{Map, Value};
+use serde_json::Value;
 use simple_logger::{self};
+
+use crate::rpc::*;
 
 #[derive(Debug, Clone)]
 pub struct Ornis {
@@ -119,93 +120,6 @@ fn handle_command(ornis: &mut Ornis) -> Message {
         Command::WorldQuery => handle_world_query(&words, &ornis.current_ns),
         _ => Message::Noop,
     }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct BrpQueryRequest {
-    jsonrpc: String,
-    method: String,
-    id: serde_json::Value,
-    params: QueryParams,
-}
-
-impl Default for BrpQueryRequest {
-    fn default() -> Self {
-        Self {
-            jsonrpc: "2.0".into(),
-            method: String::default(),
-            id: Value::default(),
-            params: QueryParams::default(),
-        }
-    }
-}
-
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-struct QueryParams {
-    data: QueryData,
-    filter: QueryFilter,
-    strict: bool,
-}
-
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-struct QueryData {
-    components: Vec<String>,
-    option: Vec<String>,
-    has: Vec<String>,
-}
-
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-struct QueryFilter {
-    with: Vec<String>,
-    without: Vec<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct QueryResponse {
-    result: Vec<BrpEntity>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct BrpEntity {
-    components: HashMap<String, Value>,
-    entity: i64,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct BrpRegistryRequest {
-    jsonrpc: String,
-    method: String,
-    id: serde_json::Value,
-    params: RegistryParams,
-}
-
-impl Default for BrpRegistryRequest {
-    fn default() -> Self {
-        Self {
-            jsonrpc: "2.0".into(),
-            id: Value::default(),
-            method: Default::default(),
-            params: Default::default(),
-        }
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-struct RegistryParams {
-    with_crates: Vec<String>,
-    without_crates: Vec<String>,
-    type_limit: RegistryTypeLimit,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-struct RegistryTypeLimit {
-    with: Vec<String>,
-    without: Vec<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-struct RegistryResponse {
-    result: Map<String, Value>,
 }
 
 fn handle_registry_req() -> Task<Message> {

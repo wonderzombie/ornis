@@ -1,6 +1,7 @@
 mod rpc;
 
 use anyhow::anyhow;
+use iced::widget::text;
 use iced::{
     Element, Event, Font,
     Length::{Fill, FillPortion},
@@ -9,7 +10,8 @@ use iced::{
     widget::{
         Row, button, column,
         operation::{focus, snap_to_end},
-        row, scrollable, text,
+        row, scrollable,
+        text::Alignment,
         text_editor::{self, Action, Content},
         text_input,
     },
@@ -33,7 +35,15 @@ pub struct Ornis {
     current_ns: String,
     command_hist: Vec<String>,
     hist_idx: usize,
-    last_response: Vec<String>,
+    last_response: Vec<Structure>,
+}
+
+#[derive(Default, Debug, Clone)]
+enum Structure {
+    #[default]
+    Empty,
+    Entity(String),
+    Component(String, Value),
 }
 
 const URL: &str = "http://localhost:15702";
@@ -215,18 +225,16 @@ fn handle_resp(response: blocking::Response) -> Result<Message, anyhow::Error> {
 }
 
 fn update_pane(state: &mut Ornis, resp: &BrpQueryResponse) -> Task<Message> {
-    let mut lines: Vec<String> = vec![];
+    let mut structures: Vec<Structure> = vec![];
 
     for entity in resp.result.iter() {
-        lines.push(format!("entity: {}", entity.id));
-
+        structures.push(Structure::Entity(format!("{}", entity.id)));
         for c in &entity.components {
-            lines.push(format!("\t{} = {}", c.0, c.1));
+            structures.push(Structure::Component(c.0.clone(), c.1.clone()))
         }
-        lines.push("\n".into());
     }
 
-    state.last_response = lines;
+    state.last_response = structures;
 
     Task::done(Message::UpdatePane)
 }
@@ -321,22 +329,38 @@ fn view(state: &Ornis) -> Row<'_, Message> {
         ]
         .width(FillPortion(5))
         .spacing(10),
-        column![scrollable(structured_view(state)).id(STRUCTURED_VIEW_ID)]
-            .width(FillPortion(1))
+        scrollable(structured_view(state))
+            .id(STRUCTURED_VIEW_ID)
+            .width(FillPortion(2))
             .height(Fill)
             .spacing(10)
     ]
     .spacing(10)
 }
 
-fn structured_view(state: &Ornis) -> Element<'_, Message> {
-    let mut col = column![text("last response")];
+fn mono_text<'a>(t: String, align: Alignment) -> Element<'a, Message> {
+    text(t).align_x(align).font(Font::MONOSPACE).size(11).into()
+}
 
-    for line in state.last_response.iter() {
-        col = col.push(text(line).font(Font::MONOSPACE));
+fn structured_view(state: &Ornis) -> impl Into<Element<'_, Message>> {
+    let mut col = column![text("last response").font(Font::MONOSPACE)];
+
+    for item in state.last_response.iter() {
+        let t = match item {
+            Structure::Entity(id) => {
+                row![mono_text(format!("‣ {}", id), Alignment::Left)].spacing(10)
+            }
+            Structure::Component(name, val) => row![
+                mono_text("   •".into(), Alignment::Right),
+                mono_text(format!("{}: {}", name, val), Alignment::Left)
+            ]
+            .spacing(10),
+            _ => continue,
+        };
+        col = col.push(t);
     }
 
-    col.into()
+    col
 }
 
 fn on_action(action: Action) -> Message {

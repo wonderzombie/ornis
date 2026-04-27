@@ -1,4 +1,4 @@
-use std::{collections::HashMap, default};
+use std::collections::HashMap;
 
 use anyhow::anyhow;
 use iced::{
@@ -10,18 +10,32 @@ use iced::{
         text_input,
     },
 };
-use log::{self, Level, LevelFilter, error, info};
-use reqwest::{self, Response, blocking};
+use log::{LevelFilter, error, info};
+use reqwest::{self, blocking};
 use serde::{Deserialize, Serialize};
-use serde_json::{Number, Value};
+use serde_json::Value;
 use simple_logger::{self};
 
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Clone)]
 pub struct Ornis {
     // UI state
     scrollback: Vec<String>,
-    input: String,
-    content: Content,
+    text_input: String,
+    text_content: Content,
+    current_ns: String,
+}
+
+const CRATE_PATH: &'static str = "wanderrust";
+
+impl Default for Ornis {
+    fn default() -> Self {
+        Self {
+            scrollback: Default::default(),
+            text_input: Default::default(),
+            text_content: Default::default(),
+            current_ns: CRATE_PATH.into(),
+        }
+    }
 }
 
 #[derive(Debug, Default, Clone)]
@@ -36,7 +50,7 @@ enum Message {
 }
 
 macro_rules! enum_with_str {
-    ( $enum_name:ident, $( $variant:ident($val:expr) ),* $(,)? ) => {
+    ( $enum_name:ident, $( $variant:ident ),* $(,)?  ) => {
         #[derive(Default, Debug, Eq, PartialEq, Copy, Clone, Hash)]
         pub enum $enum_name {
             #[default]
@@ -54,31 +68,49 @@ macro_rules! enum_with_str {
                 &[ $( (stringify!($variant), $enum_name::$variant), )* ]
             }
 
-            pub fn from_str(value: impl AsRef<str>) -> Option<$enum_name> {
+            pub fn from_name(value: impl AsRef<str>) -> Option<$enum_name> {
                 Self::pairs().iter().find(|(s, _)| value.as_ref() == *s).copied().map(|(_, v)| v)
             }
         }
     };
 }
 
-enum_with_str!(
-    Command,
-    Query("world.query"),
-    ListResources("world.list_resources"),
-    ListComponent("world.list_components"),
-);
+impl Command {
+    fn from_str(s: impl AsRef<str>) -> Command {
+        let words: Vec<&str> = s.as_ref().split_ascii_whitespace().into_iter().collect();
+        let Some(first) = words.first() else {
+            return Command::Unset;
+        };
 
-fn handle_command(_ornis: &mut Ornis) -> Message {
-    let lower = _ornis.input.to_ascii_lowercase();
-    let command = Command::from_str(lower).ok_or(Command::Unset);
+        match *first {
+            "wq" | "q" | "world.query" | "query" => Command::WorldQuery,
+            _ => Command::Unset,
+        }
+    }
+}
+
+enum_with_str!(Command, WorldQuery, ListResources, ListComponent);
+
+fn handle_command(ornis: &mut Ornis) -> Message {
+    let words: Vec<&str> = ornis
+        .text_input
+        .split_ascii_whitespace()
+        .into_iter()
+        .collect();
+    let command = words
+        .first()
+        .map(|s| Command::from_str(s))
+        .unwrap_or_default();
+
+    info!("command: {command:?}");
 
     match command {
-        Ok(Command::Query) => handle_world_query(),
+        Command::WorldQuery => handle_world_query(&words, &ornis.current_ns),
         _ => Message::Noop,
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 struct BrpRequest {
     jsonrpc: String,
     method: String,
@@ -97,21 +129,21 @@ impl Default for BrpRequest {
     }
 }
 
-#[derive(Debug, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 struct Params {
     data: Data,
     filter: Filter,
     strict: bool,
 }
 
-#[derive(Debug, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 struct Data {
     components: Vec<String>,
     option: Vec<String>,
     has: Vec<String>,
 }
 
-#[derive(Debug, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 struct Filter {
     with: Vec<String>,
     without: Vec<String>,
@@ -123,46 +155,55 @@ struct BrpResponse {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-struct GridCoords {
-    pub x: i32,
-    pub y: i32,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
 struct BrpEntity {
-    components: HashMap<String, GridCoords>,
+    components: HashMap<String, Value>,
     entity: i64,
 }
 
-fn handle_world_query() -> Message {
+fn handle_world_query(words: &Vec<&str>, ns: impl AsRef<str>) -> Message {
     info!("handle_world_query");
     let client = reqwest::blocking::Client::new();
+
+    let ns = ns.as_ref();
+    let input = &words[1];
+
+    let fq_input = format!("{ns}::{input}");
+    info!("assembling query: {fq_input}");
 
     let req = BrpRequest {
         method: "world.query".into(),
         params: Params {
             data: Data {
-                components: vec!["bevy_ecs_ldtk::components::GridCoords".into()],
+                components: vec![fq_input.into()],
                 ..Default::default()
             },
             ..Default::default()
         },
         ..Default::default()
     };
+
+    if let Ok(json) = serde_json::to_string_pretty(&req) {
+        info!("{:?}", req);
+        info!("json: {}", json);
+    }
+
+    info!("{:?}", req);
+    info!("{:?}", serde_json::to_string_pretty(&req).unwrap(),);
+
     let resp = client.post("http://localhost:15702").json(&req);
 
-    let result = match resp.send() {
+    let result = resp.send();
+
+    match result {
         Ok(http_resp) => {
-            info!("response {:?}", http_resp);
-            handle_resp(http_resp)
+            info!("handle_world_query: resp {:?}", http_resp);
+            handle_resp(http_resp).unwrap_or(Message::Noop)
         }
         Err(err) => {
-            error!("handle_world_query: {}", err);
-            anyhow::Result::Err(anyhow!("bad response: {}", err))
+            error!("handle_world_query: err {}", err);
+            Message::Noop
         }
-    };
-
-    result.unwrap_or(Message::Noop)
+    }
 }
 
 fn handle_resp(response: blocking::Response) -> Result<Message, anyhow::Error> {
@@ -183,19 +224,21 @@ fn handle_resp(response: blocking::Response) -> Result<Message, anyhow::Error> {
 fn update(state: &mut Ornis, message: Message) -> Task<Message> {
     match message {
         Message::EnterPressed => {
-            state.scrollback.push(format!("> {}", state.input.clone()));
-            state.content = Content::with_text(state.scrollback.join("\n").as_str());
-            info!("doing a canned command");
+            state
+                .scrollback
+                .push(format!("> {}", state.text_input.clone()));
+            state.text_content = Content::with_text(state.scrollback.join("\n").as_str());
+            info!("doing a canned command; input {:?}", &state.text_input);
             let m = handle_command(state);
-            state.input.clear();
+            state.text_input.clear();
             return Task::done(m);
         }
         Message::ContentChanged(new_input) => {
-            state.input = new_input;
+            state.text_input = new_input;
         }
         Message::WindowOpened => {
             state.scrollback = vec!["=== welcome to ornith ===".into()];
-            state.content = Content::with_text(state.scrollback.join("\n").as_str());
+            state.text_content = Content::with_text(state.scrollback.join("\n").as_str());
             return focus(MAIN_INPUT_ID);
         }
         Message::ResultsReady(mut resp) => {
@@ -203,7 +246,7 @@ fn update(state: &mut Ornis, message: Message) -> Task<Message> {
             let out = serde_json::to_string_pretty::<BrpResponse>(&resp);
             if let Ok(out) = out {
                 state.scrollback.push(out);
-                state.content = Content::with_text(state.scrollback.join("\n").as_str());
+                state.text_content = Content::with_text(state.scrollback.join("\n").as_str());
             }
         }
         _ => return Task::none(),
@@ -215,10 +258,10 @@ const MAIN_INPUT_ID: &'static str = "main_input";
 
 fn view(state: &Ornis) -> Column<'_, Message> {
     column![
-        text_editor::TextEditor::new(&state.content)
+        text_editor::TextEditor::new(&state.text_content)
             .size(14)
             .height(iced::FillPortion(9)),
-        text_input::TextInput::new("commands go here", &state.input)
+        text_input::TextInput::new("commands go here", &state.text_input)
             .id(MAIN_INPUT_ID)
             .padding(10)
             .size(14)

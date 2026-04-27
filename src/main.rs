@@ -2,12 +2,12 @@ mod rpc;
 
 use anyhow::anyhow;
 use iced::{
-    Event,
+    Element, Event, Font,
     Length::{Fill, FillPortion},
     Task, event,
-    keyboard::{Key, key::Named},
+    keyboard::{Event::KeyPressed, Key, key::Named},
     widget::{
-        Container, Row, button, column,
+        Row, button, column,
         operation::{focus, snap_to_end},
         row, scrollable, text,
         text_editor::{self, Action, Content},
@@ -33,12 +33,12 @@ pub struct Ornis {
     current_ns: String,
     command_hist: Vec<String>,
     hist_idx: usize,
-    last_response: String,
+    last_response: Vec<String>,
 }
 
-const URL: &'static str = "http://localhost:15702";
+const URL: &str = "http://localhost:15702";
 
-const CRATE_PATH: &'static str = "wanderrust";
+const CRATE_PATH: &str = "wanderrust";
 
 impl Default for Ornis {
     fn default() -> Self {
@@ -98,7 +98,7 @@ macro_rules! enum_with_str {
 
 impl Command {
     fn from_str(s: impl AsRef<str>) -> Command {
-        let words: Vec<&str> = s.as_ref().split_ascii_whitespace().into_iter().collect();
+        let words: Vec<&str> = s.as_ref().split_ascii_whitespace().collect();
         let Some(first) = words.first() else {
             return Command::Unset;
         };
@@ -113,15 +113,8 @@ impl Command {
 enum_with_str!(Command, WorldQuery, ListResources, ListComponent);
 
 fn handle_command(ornis: &mut Ornis) -> Message {
-    let words: Vec<&str> = ornis
-        .text_input
-        .split_ascii_whitespace()
-        .into_iter()
-        .collect();
-    let command = words
-        .first()
-        .map(|s| Command::from_str(s))
-        .unwrap_or_default();
+    let words: Vec<&str> = ornis.text_input.split_ascii_whitespace().collect();
+    let command = words.first().map(Command::from_str).unwrap_or_default();
 
     info!("command: {command:?}");
 
@@ -152,11 +145,11 @@ fn handle_registry_req() -> Task<Message> {
             let json = result.json().unwrap();
             info!("{json:#?}");
 
-            return Task::done(Message::LoadRegistry(json));
+            Task::done(Message::LoadRegistry(json))
         }
         Err(err) => {
             error!("handle_registry_req: {}", err);
-            return Task::none();
+            Task::none()
         }
     }
 }
@@ -212,11 +205,11 @@ fn handle_resp(response: blocking::Response) -> Result<Message, anyhow::Error> {
     match serde_json::from_value(val) {
         Ok(results) => {
             trace!("response val: {:?}", results);
-            return Ok(Message::QueryResultsReady(results));
+            Ok(Message::QueryResultsReady(results))
         }
         Err(err) => {
             error!("{}", err);
-            return Err(anyhow!(err));
+            Err(anyhow!(err))
         }
     }
 }
@@ -233,7 +226,7 @@ fn update_pane(state: &mut Ornis, resp: &BrpQueryResponse) -> Task<Message> {
         lines.push("\n".into());
     }
 
-    state.last_response = lines.join("\n");
+    state.last_response = lines;
 
     Task::done(Message::UpdatePane)
 }
@@ -279,7 +272,7 @@ fn update(state: &mut Ornis, message: Message) -> Task<Message> {
             state.text_input = state
                 .command_hist
                 .iter()
-                .nth_back(state.hist_idx as usize)
+                .nth_back(state.hist_idx)
                 .cloned()
                 .unwrap_or_default();
             state.hist_idx = state.hist_idx.saturating_add(1);
@@ -288,7 +281,7 @@ fn update(state: &mut Ornis, message: Message) -> Task<Message> {
             state.text_input = state
                 .command_hist
                 .iter()
-                .nth_back(state.hist_idx as usize)
+                .nth_back(state.hist_idx)
                 .cloned()
                 .unwrap_or_default();
             state.hist_idx = state.hist_idx.saturating_sub(1);
@@ -300,9 +293,9 @@ fn update(state: &mut Ornis, message: Message) -> Task<Message> {
     Task::none()
 }
 
-const MAIN_INPUT_ID: &'static str = "main_input";
-const MAIN_OUTPUT_ID: &'static str = "main_output";
-const STRUCTURED_VIEW_ID: &'static str = "structured_view";
+const MAIN_INPUT_ID: &str = "main_input";
+const MAIN_OUTPUT_ID: &str = "main_output";
+const STRUCTURED_VIEW_ID: &str = "structured_view";
 
 fn view(state: &Ornis) -> Row<'_, Message> {
     row![
@@ -310,7 +303,8 @@ fn view(state: &Ornis) -> Row<'_, Message> {
             scrollable(
                 text_editor::TextEditor::new(&state.text_content)
                     .id(MAIN_OUTPUT_ID)
-                    .size(14)
+                    .size(12)
+                    .font(Font::MONOSPACE)
                     .on_action(on_action)
             )
             .height(FillPortion(8)),
@@ -318,7 +312,8 @@ fn view(state: &Ornis) -> Row<'_, Message> {
                 text_input::TextInput::new("commands go here", &state.text_input)
                     .id(MAIN_INPUT_ID)
                     .padding(10)
-                    .size(14)
+                    .size(12)
+                    .font(Font::MONOSPACE)
                     .on_input(Message::ContentChanged)
                     .on_submit(Message::EnterPressed),
                 button("enter").on_press(Message::EnterPressed),
@@ -326,15 +321,22 @@ fn view(state: &Ornis) -> Row<'_, Message> {
         ]
         .width(FillPortion(5))
         .spacing(10),
-        column![scrollable(
-            Container::new(text(&state.last_response)).id(STRUCTURED_VIEW_ID)
-        )]
-        .width(FillPortion(1))
-        .height(Fill)
-        .spacing(10)
+        column![scrollable(structured_view(state)).id(STRUCTURED_VIEW_ID)]
+            .width(FillPortion(1))
+            .height(Fill)
+            .spacing(10)
     ]
     .spacing(10)
-    .into()
+}
+
+fn structured_view(state: &Ornis) -> Element<'_, Message> {
+    let mut col = column![text("last response")];
+
+    for line in state.last_response.iter() {
+        col = col.push(text(line).font(Font::MONOSPACE));
+    }
+
+    col.into()
 }
 
 fn on_action(action: Action) -> Message {
@@ -346,12 +348,9 @@ fn on_action(action: Action) -> Message {
 
 fn subscription(_state: &Ornis) -> iced::Subscription<Message> {
     event::listen_with(|evt, _, _| match evt {
-        Event::Keyboard(key_event) => match key_event {
-            iced::keyboard::Event::KeyPressed { key, .. } => match key {
-                Key::Named(Named::ArrowUp) => Some(Message::CommandPrev),
-                Key::Named(Named::ArrowDown) => Some(Message::CommandNext),
-                _ => None,
-            },
+        Event::Keyboard(KeyPressed { key, .. }) => match key {
+            Key::Named(Named::ArrowUp) => Some(Message::CommandPrev),
+            Key::Named(Named::ArrowDown) => Some(Message::CommandNext),
             _ => None,
         },
         Event::Window(win_event) => match win_event {

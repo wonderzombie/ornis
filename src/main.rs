@@ -11,10 +11,10 @@ use iced::{
         text_input,
     },
 };
-use log::{LevelFilter, error, info, trace, warn};
+use log::{LevelFilter, error, info, trace};
 use reqwest::{self, blocking};
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::{Map, Value};
 use simple_logger::{self};
 
 #[derive(Debug, Clone)]
@@ -53,8 +53,8 @@ enum Message {
     ContentChanged(String),
     WindowOpened,
     WindowClosed,
-    ResultsReady(BrpResponse),
-    LoadRegistry(Option<Value>),
+    ResultsReady(QueryResponse),
+    LoadRegistry(RegistryResponse),
     OutputChanged,
     CommandPrev,
     CommandNext,
@@ -122,46 +122,46 @@ fn handle_command(ornis: &mut Ornis) -> Message {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-struct BrpRequest {
+struct BrpQueryRequest {
     jsonrpc: String,
     method: String,
     id: serde_json::Value,
-    params: Params,
+    params: QueryParams,
 }
 
-impl Default for BrpRequest {
+impl Default for BrpQueryRequest {
     fn default() -> Self {
         Self {
             jsonrpc: "2.0".into(),
             method: String::default(),
             id: Value::default(),
-            params: Params::default(),
+            params: QueryParams::default(),
         }
     }
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
-struct Params {
-    data: Data,
-    filter: Filter,
+struct QueryParams {
+    data: QueryData,
+    filter: QueryFilter,
     strict: bool,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
-struct Data {
+struct QueryData {
     components: Vec<String>,
     option: Vec<String>,
     has: Vec<String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
-struct Filter {
+struct QueryFilter {
     with: Vec<String>,
     without: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-struct BrpResponse {
+struct QueryResponse {
     result: Vec<BrpEntity>,
 }
 
@@ -171,23 +171,69 @@ struct BrpEntity {
     entity: i64,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct BrpRegistryRequest {
+    jsonrpc: String,
+    method: String,
+    id: serde_json::Value,
+    params: RegistryParams,
+}
+
+impl Default for BrpRegistryRequest {
+    fn default() -> Self {
+        Self {
+            jsonrpc: "2.0".into(),
+            id: Value::default(),
+            method: Default::default(),
+            params: Default::default(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+struct RegistryParams {
+    with_crates: Vec<String>,
+    without_crates: Vec<String>,
+    type_limit: RegistryTypeLimit,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+struct RegistryTypeLimit {
+    with: Vec<String>,
+    without: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+struct RegistryResponse {
+    result: Map<String, Value>,
+}
+
 fn handle_registry_req() -> Task<Message> {
     let client = reqwest::blocking::Client::new();
 
-    let req = BrpRequest {
+    let req = BrpRegistryRequest {
         method: "registry.schema".into(),
+        params: RegistryParams {
+            with_crates: vec!["wanderrust".into()],
+            ..Default::default()
+        },
         ..Default::default()
     };
 
     let resp_result = client.post(URL).json(&req).send();
 
-    println!("{resp_result:?}");
+    info!("{resp_result:#?}");
 
     match resp_result {
-        Ok(result) => return Task::done(Message::LoadRegistry(result.json().ok())),
+        Ok(result) => {
+            let json = result.json().unwrap();
+            info!("{json:#?}");
+
+            return Task::done(Message::LoadRegistry(json));
+        }
         Err(err) => {
             error!("handle_registry_req: {}", err);
-            return Task::done(Message::LoadRegistry(None));
+            return Task::none();
         }
     }
 }
@@ -204,10 +250,10 @@ fn handle_world_query(words: &Vec<&str>, ns: impl AsRef<str>) -> Message {
 
     info!("assembling query: {words:?}");
 
-    let req = BrpRequest {
+    let req = BrpQueryRequest {
         method: "world.query".into(),
-        params: Params {
-            data: Data {
+        params: QueryParams {
+            data: QueryData {
                 components: words,
                 ..Default::default()
             },
@@ -278,18 +324,14 @@ fn update(state: &mut Ornis, message: Message) -> Task<Message> {
         }
         Message::ResultsReady(mut resp) => {
             resp.result.truncate(20);
-            let out = serde_json::to_string_pretty::<BrpResponse>(&resp);
+            let out = serde_json::to_string_pretty::<QueryResponse>(&resp);
             if let Ok(out) = out {
                 state.scrollback.push(out);
                 state.text_content = Content::with_text(state.scrollback.join("\n").as_str());
                 return snap_to_end(MAIN_OUTPUT_ID);
             }
         }
-        Message::LoadRegistry(res) => {
-            match res {
-                Some(info) => info!("info: {:?}", info),
-                None => warn!("unable to obtain registry info"),
-            }
+        Message::LoadRegistry(mut resp) => {
             return Task::none();
         }
         Message::CommandPrev => {

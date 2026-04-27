@@ -9,7 +9,7 @@ use iced::{
     widget::{
         Container, Row, button, column,
         operation::{focus, snap_to_end},
-        row, text,
+        row, scrollable, text,
         text_editor::{self, Action, Content},
         text_input,
     },
@@ -33,7 +33,6 @@ pub struct Ornis {
     current_ns: String,
     command_hist: Vec<String>,
     hist_idx: usize,
-
     last_response: String,
 }
 
@@ -308,11 +307,13 @@ const STRUCTURED_VIEW_ID: &'static str = "structured_view";
 fn view(state: &Ornis) -> Row<'_, Message> {
     row![
         column![
-            text_editor::TextEditor::new(&state.text_content)
-                .id(MAIN_OUTPUT_ID)
-                .size(14)
-                .height(Fill)
-                .on_action(on_action),
+            scrollable(
+                text_editor::TextEditor::new(&state.text_content)
+                    .id(MAIN_OUTPUT_ID)
+                    .size(14)
+                    .on_action(on_action)
+            )
+            .height(FillPortion(8)),
             row![
                 text_input::TextInput::new("commands go here", &state.text_input)
                     .id(MAIN_INPUT_ID)
@@ -322,14 +323,15 @@ fn view(state: &Ornis) -> Row<'_, Message> {
                     .on_submit(Message::EnterPressed),
                 button("enter").on_press(Message::EnterPressed),
             ]
-            .spacing(10),
         ]
         .width(FillPortion(5))
         .spacing(10),
-        column![Container::new(text(&state.last_response)).id(STRUCTURED_VIEW_ID)]
-            .width(FillPortion(1))
-            .height(Fill)
-            .spacing(10)
+        column![scrollable(
+            Container::new(text(&state.last_response)).id(STRUCTURED_VIEW_ID)
+        )]
+        .width(FillPortion(1))
+        .height(Fill)
+        .spacing(10)
     ]
     .spacing(10)
     .into()

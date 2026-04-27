@@ -5,8 +5,8 @@ use iced::{
     Task,
     widget::{
         Column, button, column,
-        operation::focus,
-        text_editor::{self, Content},
+        operation::{focus, snap_to_end},
+        text_editor::{self, Action, Content},
         text_input,
     },
 };
@@ -164,17 +164,19 @@ fn handle_world_query(words: &Vec<&str>, ns: impl AsRef<str>) -> Message {
     info!("handle_world_query");
     let client = reqwest::blocking::Client::new();
 
-    let ns = ns.as_ref();
-    let input = &words[1];
+    let words = words
+        .iter()
+        .skip(1)
+        .map(|&s| format!("{}::{}", ns.as_ref(), s))
+        .collect::<Vec<_>>();
 
-    let fq_input = format!("{ns}::{input}");
-    info!("assembling query: {fq_input}");
+    info!("assembling query: {words:?}");
 
     let req = BrpRequest {
         method: "world.query".into(),
         params: Params {
             data: Data {
-                components: vec![fq_input.into()],
+                components: words,
                 ..Default::default()
             },
             ..Default::default()
@@ -187,8 +189,7 @@ fn handle_world_query(words: &Vec<&str>, ns: impl AsRef<str>) -> Message {
         info!("json: {}", json);
     }
 
-    info!("{:?}", req);
-    info!("{:?}", serde_json::to_string_pretty(&req).unwrap(),);
+    info!("outgoing request: {:?}", req);
 
     let resp = client.post("http://localhost:15702").json(&req);
 
@@ -247,6 +248,7 @@ fn update(state: &mut Ornis, message: Message) -> Task<Message> {
             if let Ok(out) = out {
                 state.scrollback.push(out);
                 state.text_content = Content::with_text(state.scrollback.join("\n").as_str());
+                return snap_to_end(MAIN_OUTPUT_ID);
             }
         }
         _ => return Task::none(),
@@ -255,12 +257,15 @@ fn update(state: &mut Ornis, message: Message) -> Task<Message> {
 }
 
 const MAIN_INPUT_ID: &'static str = "main_input";
+const MAIN_OUTPUT_ID: &'static str = "main_output";
 
 fn view(state: &Ornis) -> Column<'_, Message> {
     column![
         text_editor::TextEditor::new(&state.text_content)
+            .id(MAIN_OUTPUT_ID)
             .size(14)
-            .height(iced::FillPortion(9)),
+            .height(iced::FillPortion(9))
+            .on_action(on_action),
         text_input::TextInput::new("commands go here", &state.text_input)
             .id(MAIN_INPUT_ID)
             .padding(10)
@@ -271,6 +276,12 @@ fn view(state: &Ornis) -> Column<'_, Message> {
     ]
     .spacing(10)
     .into()
+}
+
+fn on_action(action: Action) -> Message {
+    match action {
+        _ => Message::Noop,
+    }
 }
 
 fn subscription(_state: &Ornis) -> iced::Subscription<Message> {

@@ -43,14 +43,15 @@ pub(crate) struct QueryFilter {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub(crate) struct QueryResponse {
+pub(crate) struct BrpQueryResponse {
     pub(crate) result: Vec<BrpEntity>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct BrpEntity {
     pub(crate) components: HashMap<String, Value>,
-    pub(crate) entity: i64,
+    #[serde(rename = "entity")]
+    pub(crate) id: i64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -86,6 +87,6 @@ pub(crate) struct RegistryTypeLimit {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub(crate) struct RegistryResponse {
+pub(crate) struct BrpRegistryResponse {
     result: Map<String, Value>,
 }

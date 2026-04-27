@@ -7,7 +7,7 @@ use iced::{
     Task, event,
     keyboard::{Key, key::Named},
     widget::{
-        Column, Container, Row, Text, button, column,
+        Container, Row, button, column,
         operation::{focus, snap_to_end},
         row, text,
         text_editor::{self, Action, Content},
@@ -15,7 +15,10 @@ use iced::{
     },
 };
 use log::{LevelFilter, error, info, trace};
-use reqwest::{self, blocking};
+use reqwest::{
+    self,
+    blocking::{self},
+};
 use serde_json::Value;
 use simple_logger::{self};
 
@@ -30,6 +33,8 @@ pub struct Ornis {
     current_ns: String,
     command_hist: Vec<String>,
     hist_idx: usize,
+
+    last_response: String,
 }
 
 const URL: &'static str = "http://localhost:15702";
@@ -45,6 +50,7 @@ impl Default for Ornis {
             current_ns: CRATE_PATH.into(),
             command_hist: Default::default(),
             hist_idx: Default::default(),
+            last_response: Default::default(),
         }
     }
 }
@@ -57,11 +63,12 @@ enum Message {
     ContentChanged(String),
     WindowOpened,
     WindowClosed,
-    ResultsReady(QueryResponse),
-    LoadRegistry(RegistryResponse),
+    QueryResultsReady(BrpQueryResponse),
+    LoadRegistry(BrpRegistryResponse),
     OutputChanged,
     CommandPrev,
     CommandNext,
+    UpdatePane,
 }
 
 macro_rules! enum_with_str {
@@ -186,11 +193,9 @@ fn handle_world_query(words: &Vec<&str>, ns: impl AsRef<str>) -> Message {
 
     trace!("outgoing request: {:?}", req);
 
-    let resp = client.post(URL).json(&req);
+    let resp = client.post(URL).json(&req).send();
 
-    let result = resp.send();
-
-    match result {
+    match resp {
         Ok(http_resp) => {
             trace!("handle_world_query: resp {:?}", http_resp);
             handle_resp(http_resp).unwrap_or(Message::Noop)
@@ -208,13 +213,30 @@ fn handle_resp(response: blocking::Response) -> Result<Message, anyhow::Error> {
     match serde_json::from_value(val) {
         Ok(results) => {
             trace!("response val: {:?}", results);
-            return Ok(Message::ResultsReady(results));
+            return Ok(Message::QueryResultsReady(results));
         }
         Err(err) => {
             error!("{}", err);
             return Err(anyhow!(err));
         }
     }
+}
+
+fn update_pane(state: &mut Ornis, resp: &BrpQueryResponse) -> Task<Message> {
+    let mut lines: Vec<String> = vec![];
+
+    for entity in resp.result.iter() {
+        lines.push(format!("entity: {}", entity.id));
+
+        for c in &entity.components {
+            lines.push(format!("\t{} = {}", c.0, c.1));
+        }
+        lines.push("\n".into());
+    }
+
+    state.last_response = lines.join("\n");
+
+    Task::done(Message::UpdatePane)
 }
 
 fn update(state: &mut Ornis, message: Message) -> Task<Message> {
@@ -239,16 +261,19 @@ fn update(state: &mut Ornis, message: Message) -> Task<Message> {
             state.text_content = Content::with_text(state.scrollback.join("\n").as_str());
             return focus(MAIN_INPUT_ID).chain(handle_registry_req());
         }
-        Message::ResultsReady(mut resp) => {
+        Message::QueryResultsReady(mut resp) => {
             resp.result.truncate(20);
-            let out = serde_json::to_string_pretty::<QueryResponse>(&resp);
+            let out = serde_json::to_string_pretty::<BrpQueryResponse>(&resp);
             if let Ok(out) = out {
                 state.scrollback.push(out);
                 state.text_content = Content::with_text(state.scrollback.join("\n").as_str());
-                return snap_to_end(MAIN_OUTPUT_ID);
+
+                let update_task = update_pane(state, &resp);
+
+                return snap_to_end(MAIN_OUTPUT_ID).chain(update_task);
             }
         }
-        Message::LoadRegistry(mut resp) => {
+        Message::LoadRegistry(_) => {
             return Task::none();
         }
         Message::CommandPrev => {
@@ -270,6 +295,7 @@ fn update(state: &mut Ornis, message: Message) -> Task<Message> {
             state.hist_idx = state.hist_idx.saturating_sub(1);
         }
         Message::OutputChanged => return snap_to_end(MAIN_OUTPUT_ID),
+        Message::UpdatePane => return Task::none(),
         _ => return Task::none(),
     }
     Task::none()
@@ -300,8 +326,9 @@ fn view(state: &Ornis) -> Row<'_, Message> {
         ]
         .width(FillPortion(5))
         .spacing(10),
-        column![Container::new(text("nothing here yet").size(12)).id(STRUCTURED_VIEW_ID)]
+        column![Container::new(text(&state.last_response)).id(STRUCTURED_VIEW_ID)]
             .width(FillPortion(1))
+            .height(Fill)
             .spacing(10)
     ]
     .spacing(10)

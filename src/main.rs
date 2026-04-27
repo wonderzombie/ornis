@@ -2,11 +2,14 @@ mod rpc;
 
 use anyhow::anyhow;
 use iced::{
-    Event, Task, event,
+    Event,
+    Length::{Fill, FillPortion},
+    Task, event,
     keyboard::{Key, key::Named},
     widget::{
-        Column, button, column,
+        Column, Container, Row, Text, button, column,
         operation::{focus, snap_to_end},
+        row, text,
         text_editor::{self, Action, Content},
         text_input,
     },
@@ -274,21 +277,32 @@ fn update(state: &mut Ornis, message: Message) -> Task<Message> {
 
 const MAIN_INPUT_ID: &'static str = "main_input";
 const MAIN_OUTPUT_ID: &'static str = "main_output";
+const STRUCTURED_VIEW_ID: &'static str = "structured_view";
 
-fn view(state: &Ornis) -> Column<'_, Message> {
-    column![
-        text_editor::TextEditor::new(&state.text_content)
-            .id(MAIN_OUTPUT_ID)
-            .size(14)
-            .height(iced::FillPortion(9))
-            .on_action(on_action),
-        text_input::TextInput::new("commands go here", &state.text_input)
-            .id(MAIN_INPUT_ID)
-            .padding(10)
-            .size(14)
-            .on_input(Message::ContentChanged)
-            .on_submit(Message::EnterPressed),
-        button("enter").on_press(Message::EnterPressed),
+fn view(state: &Ornis) -> Row<'_, Message> {
+    row![
+        column![
+            text_editor::TextEditor::new(&state.text_content)
+                .id(MAIN_OUTPUT_ID)
+                .size(14)
+                .height(Fill)
+                .on_action(on_action),
+            row![
+                text_input::TextInput::new("commands go here", &state.text_input)
+                    .id(MAIN_INPUT_ID)
+                    .padding(10)
+                    .size(14)
+                    .on_input(Message::ContentChanged)
+                    .on_submit(Message::EnterPressed),
+                button("enter").on_press(Message::EnterPressed),
+            ]
+            .spacing(10),
+        ]
+        .width(FillPortion(5))
+        .spacing(10),
+        column![Container::new(text("nothing here yet").size(12)).id(STRUCTURED_VIEW_ID)]
+            .width(FillPortion(1))
+            .spacing(10)
     ]
     .spacing(10)
     .into()

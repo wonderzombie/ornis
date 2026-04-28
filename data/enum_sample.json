@@ -1,0 +1,77 @@
+{
+  "wanderrust::interactions::Interactable": {
+    "crateName": "wanderrust",
+    "kind": "Enum",
+    "modulePath": "wanderrust::interactions",
+    "oneOf": [
+      {
+        "additionalProperties": false,
+        "kind": "Struct",
+        "properties": {
+          "is_open": {
+            "type": {
+              "$ref": "#/$defs/bool"
+            },
+            "typePath": "is_open"
+          },
+          "requires": {
+            "type": {
+              "$ref": "#/$defs/core::option::Option<wanderrust::inventory::Item>"
+            },
+            "typePath": "requires"
+          },
+          "tile_idx": {
+            "type": {
+              "$ref": "#/$defs/wanderrust::tiles::TileIdx"
+            },
+            "typePath": "tile_idx"
+          }
+        },
+        "required": ["is_open", "tile_idx"],
+        "shortPath": "Door",
+        "type": "object",
+        "typePath": "wanderrust::interactions::Interactable::Door"
+      },
+      {
+        "additionalProperties": false,
+        "kind": "Struct",
+        "properties": {
+          "contents": {
+            "type": {
+              "$ref": "#/$defs/core::option::Option<wanderrust::inventory::Inventory>"
+            },
+            "typePath": "contents"
+          },
+          "is_open": {
+            "type": {
+              "$ref": "#/$defs/bool"
+            },
+            "typePath": "is_open"
+          },
+          "tile_idx": {
+            "type": {
+              "$ref": "#/$defs/wanderrust::tiles::TileIdx"
+            },
+            "typePath": "tile_idx"
+          }
+        },
+        "required": ["is_open", "tile_idx"],
+        "shortPath": "Chest",
+        "type": "object",
+        "typePath": "wanderrust::interactions::Interactable::Chest"
+      },
+      {
+        "shortPath": "Speaker",
+        "typePath": "wanderrust::interactions::Interactable::Speaker"
+      },
+      {
+        "shortPath": "Combatant",
+        "typePath": "wanderrust::interactions::Interactable::Combatant"
+      }
+    ],
+    "reflectTypes": ["Component"],
+    "shortPath": "Interactable",
+    "type": "object",
+    "typePath": "wanderrust::interactions::Interactable"
+  }
+}

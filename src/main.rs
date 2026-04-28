@@ -200,7 +200,7 @@ fn handle_world_query(words: &Vec<&str>, ns: impl AsRef<str>) -> Message {
     match resp {
         Ok(http_resp) => {
             trace!("handle_world_query: resp {:?}", http_resp);
-            handle_resp(http_resp).unwrap_or(Message::Noop)
+            handle_query_resp(http_resp).unwrap_or(Message::Noop)
         }
         Err(err) => {
             error!("handle_world_query: err {}", err);
@@ -209,7 +209,7 @@ fn handle_world_query(words: &Vec<&str>, ns: impl AsRef<str>) -> Message {
     }
 }
 
-fn handle_resp(response: blocking::Response) -> Result<Message, anyhow::Error> {
+fn handle_query_resp(response: blocking::Response) -> Result<Message, anyhow::Error> {
     let val: Value = response.json().unwrap();
 
     match serde_json::from_value(val) {

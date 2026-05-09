@@ -1,6 +1,9 @@
 mod rpc;
 
 use anyhow::anyhow;
+use bevy_remote::builtin_methods::{
+    BRP_LIST_COMPONENTS_METHOD, BRP_QUERY_METHOD, BRP_REGISTRY_SCHEMA_METHOD,
+};
 use iced::widget::text;
 use iced::{
     Element, Event, Font,
@@ -72,7 +75,8 @@ enum Message {
     ContentChanged(String),
     WindowOpened,
     WindowClosed,
-    QueryResultsReady(BrpQueryResponse),
+    QueryResults(BrpQueryResponse),
+    ComponentsList(BrpListComponentsResponse),
     LoadRegistry(BrpRegistryResponse),
     OutputChanged,
     CommandPrev,
@@ -115,12 +119,13 @@ impl Command {
 
         match *first {
             "wq" | "q" | "world.query" | "query" => Command::WorldQuery,
+            "lc" | "l" | "world.list_components" | "list_components" => Command::ListComponents,
             _ => Command::Unset,
         }
     }
 }
 
-enum_with_str!(Command, WorldQuery, ListResources, ListComponent);
+enum_with_str!(Command, WorldQuery, ListResources, ListComponents);
 
 fn handle_command(ornis: &mut Ornis) -> Message {
     let words: Vec<&str> = ornis.text_input.split_ascii_whitespace().collect();
@@ -130,19 +135,27 @@ fn handle_command(ornis: &mut Ornis) -> Message {
 
     match command {
         Command::WorldQuery => handle_world_query(&words, &ornis.current_ns),
+        Command::ListComponents => handle_list_components(&words, &ornis.current_ns),
         _ => Message::Noop,
     }
 }
 
+const JSONRPC_VER: &'static str = "2.0";
+
 fn handle_registry_req() -> Task<Message> {
     let client = reqwest::blocking::Client::new();
 
-    let req = BrpRegistryRequest {
-        method: "registry.schema".into(),
-        params: RegistryParams {
-            with_crates: vec!["wanderrust".into()],
-            ..Default::default()
-        },
+    let Ok(params) = serde_json::to_value(RegistryParams {
+        with_crates: vec!["wanderrust".into()],
+        ..Default::default()
+    }) else {
+        return Task::none();
+    };
+
+    let req = BrpRequest {
+        jsonrpc: JSONRPC_VER.to_string(),
+        method: BRP_REGISTRY_SCHEMA_METHOD.to_string(),
+        params,
         ..Default::default()
     };
 
@@ -164,9 +177,45 @@ fn handle_registry_req() -> Task<Message> {
     }
 }
 
+fn handle_list_components(words: &Vec<&str>, _ns: impl AsRef<str>) -> Message {
+    trace!("handle_list_components");
+
+    let Some(entity_str) = words.iter().nth(1) else {
+        return Message::Noop;
+    };
+
+    let entity = i64::from_str_radix(entity_str, 10).unwrap_or_default();
+    trace!("querying for entity {entity_str} as {entity:?}");
+
+    let Ok(params) = serde_json::to_value(ListComponentsParams { entity }) else {
+        return Message::Noop;
+    };
+
+    let req = BrpRequest {
+        jsonrpc: JSONRPC_VER.to_string(),
+        method: BRP_LIST_COMPONENTS_METHOD.to_string(),
+        params,
+        ..Default::default()
+    };
+    trace!("outgoing request: {:?}", req);
+
+    let client = reqwest::blocking::Client::new();
+    let resp = client.post(URL).json(&req).send();
+
+    match resp {
+        Ok(http_resp) => {
+            trace!("handle_get_components: resp {http_resp:?}");
+            handle_list_components_resp(http_resp).unwrap_or(Message::Noop)
+        }
+        Err(err) => {
+            error!("handle_get_components: err {err}");
+            return Message::Noop;
+        }
+    }
+}
+
 fn handle_world_query(words: &Vec<&str>, ns: impl AsRef<str>) -> Message {
     trace!("handle_world_query");
-    let client = reqwest::blocking::Client::new();
 
     let words = words
         .iter()
@@ -176,15 +225,20 @@ fn handle_world_query(words: &Vec<&str>, ns: impl AsRef<str>) -> Message {
 
     info!("assembling query: {words:?}");
 
-    let req = BrpQueryRequest {
-        method: "world.query".into(),
-        params: QueryParams {
-            data: QueryData {
-                components: words,
-                ..Default::default()
-            },
+    let Ok(params) = serde_json::to_value(QueryParams {
+        data: QueryData {
+            components: words,
             ..Default::default()
         },
+        ..Default::default()
+    }) else {
+        return Message::Noop;
+    };
+
+    let req = BrpRequest {
+        jsonrpc: JSONRPC_VER.to_string(),
+        method: BRP_QUERY_METHOD.to_string(),
+        params,
         ..Default::default()
     };
 
@@ -195,6 +249,7 @@ fn handle_world_query(words: &Vec<&str>, ns: impl AsRef<str>) -> Message {
 
     trace!("outgoing request: {:?}", req);
 
+    let client = reqwest::blocking::Client::new();
     let resp = client.post(URL).json(&req).send();
 
     match resp {
@@ -215,7 +270,24 @@ fn handle_query_resp(response: blocking::Response) -> Result<Message, anyhow::Er
     match serde_json::from_value(val) {
         Ok(results) => {
             trace!("response val: {:?}", results);
-            Ok(Message::QueryResultsReady(results))
+            Ok(Message::QueryResults(results))
+        }
+        Err(err) => {
+            error!("{}", err);
+            Err(anyhow!(err))
+        }
+    }
+}
+
+fn handle_list_components_resp(response: blocking::Response) -> Result<Message, anyhow::Error> {
+    let val: Value = response.json().unwrap();
+
+    trace!("retrieved value: {val:?}");
+
+    match serde_json::from_value(val) {
+        Ok(results) => {
+            trace!("response val: {:?}", results);
+            Ok(Message::ComponentsList(results))
         }
         Err(err) => {
             error!("{}", err);
@@ -261,7 +333,7 @@ fn update(state: &mut Ornis, message: Message) -> Task<Message> {
             state.text_content = Content::with_text(state.scrollback.join("\n").as_str());
             return focus(MAIN_INPUT_ID).chain(handle_registry_req());
         }
-        Message::QueryResultsReady(mut resp) => {
+        Message::QueryResults(mut resp) => {
             resp.result.truncate(20);
             let out = serde_json::to_string_pretty::<BrpQueryResponse>(&resp);
             if let Ok(out) = out {
@@ -296,6 +368,7 @@ fn update(state: &mut Ornis, message: Message) -> Task<Message> {
         }
         Message::OutputChanged => return snap_to_end(MAIN_OUTPUT_ID),
         Message::UpdatePane => return Task::none(),
+        Message::ComponentsList(_) => return Task::none(),
         _ => return Task::none(),
     }
     Task::none()

@@ -3,23 +3,12 @@ use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub(crate) struct BrpQueryRequest {
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+pub(crate) struct BrpRequest {
     pub(crate) jsonrpc: String,
     pub(crate) method: String,
     pub(crate) id: serde_json::Value,
-    pub(crate) params: QueryParams,
-}
-
-impl Default for BrpQueryRequest {
-    fn default() -> Self {
-        Self {
-            jsonrpc: "2.0".into(),
-            method: String::default(),
-            id: Value::default(),
-            params: QueryParams::default(),
-        }
-    }
+    pub(crate) params: serde_json::Value,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -54,25 +43,6 @@ pub(crate) struct BrpEntity {
     pub(crate) id: i64,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub(crate) struct BrpRegistryRequest {
-    pub(crate) jsonrpc: String,
-    pub(crate) method: String,
-    pub(crate) id: serde_json::Value,
-    pub(crate) params: RegistryParams,
-}
-
-impl Default for BrpRegistryRequest {
-    fn default() -> Self {
-        Self {
-            jsonrpc: "2.0".into(),
-            id: Value::default(),
-            method: Default::default(),
-            params: Default::default(),
-        }
-    }
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub(crate) struct RegistryParams {
     pub(crate) with_crates: Vec<String>,
@@ -89,4 +59,14 @@ pub(crate) struct RegistryTypeLimit {
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub(crate) struct BrpRegistryResponse {
     result: Map<String, Value>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub(crate) struct ListComponentsParams {
+    pub(crate) entity: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub(crate) struct BrpListComponentsResponse {
+    result: Vec<String>,
 }

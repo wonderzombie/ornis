@@ -82,6 +82,8 @@ enum Message {
     CommandPrev,
     CommandNext,
     UpdatePane,
+    Delegate(Action),
+    OrnisError,
 }
 
 macro_rules! enum_with_str {
@@ -366,9 +368,18 @@ fn update(state: &mut Ornis, message: Message) -> Task<Message> {
                 .unwrap_or_default();
             state.hist_idx = state.hist_idx.saturating_sub(1);
         }
+        Message::Delegate(action) => state.text_content.perform(action),
         Message::OutputChanged => return snap_to_end(MAIN_OUTPUT_ID),
         Message::UpdatePane => return Task::none(),
-        Message::ComponentsList(_) => return Task::none(),
+        Message::ComponentsList(BrpListComponentsResponse { result }) => {
+            let mut out = String::new();
+            for component in result {
+                out.push_str(&format!("{component}\n"));
+            }
+            state.scrollback.push(out);
+            state.text_content = Content::with_text(state.scrollback.join("\n").as_str());
+            return snap_to_end(MAIN_OUTPUT_ID);
+        }
         _ => return Task::none(),
     }
     Task::none()
@@ -439,7 +450,7 @@ fn structured_view(state: &Ornis) -> impl Into<Element<'_, Message>> {
 fn on_action(action: Action) -> Message {
     match action {
         text_editor::Action::Edit(text_editor::Edit::Insert(_)) => Message::OutputChanged,
-        _ => Message::Noop,
+        _ => Message::Delegate(action),
     }
 }
 

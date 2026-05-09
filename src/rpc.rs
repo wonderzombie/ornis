@@ -68,5 +68,5 @@ pub(crate) struct ListComponentsParams {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub(crate) struct BrpListComponentsResponse {
-    result: Vec<String>,
+    pub(crate) result: Vec<String>,
 }

@@ -1,9 +1,7 @@
+mod methods;
 mod rpc;
 
 use anyhow::anyhow;
-use bevy_remote::builtin_methods::{
-    BRP_LIST_COMPONENTS_METHOD, BRP_QUERY_METHOD, BRP_REGISTRY_SCHEMA_METHOD,
-};
 use iced::widget::text;
 use iced::{
     Element, Event, Font,
@@ -20,6 +18,7 @@ use iced::{
     },
 };
 use log::{LevelFilter, error, info, trace};
+use methods::*;
 use reqwest::{
     self,
     blocking::{self},
@@ -83,7 +82,6 @@ enum Message {
     CommandNext,
     UpdatePane,
     Delegate(Action),
-    OrnisError,
 }
 
 macro_rules! enum_with_str {

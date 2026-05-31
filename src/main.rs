@@ -166,12 +166,16 @@ fn handle_registry_req() -> Task<Message> {
     info!("{resp_result:#?}");
 
     match resp_result {
-        Ok(result) => {
-            let json = result.json().unwrap();
-            info!("{json:#?}");
-
-            Task::done(Message::LoadRegistry(json))
-        }
+        Ok(resp) => match resp.json() {
+            Ok(json) => {
+                trace!("handle_registry_req: RESPONSE JSON: {json:#?}");
+                Task::done(Message::LoadRegistry(json))
+            }
+            Err(err) => {
+                error!("handle_registry_req: json: {err}");
+                Task::none()
+            }
+        },
         Err(err) => {
             error!("handle_registry_req: {}", err);
             Task::none()
@@ -199,7 +203,7 @@ fn handle_list_components(words: &Vec<&str>, _ns: impl AsRef<str>) -> Message {
         params,
         ..Default::default()
     };
-    trace!("outgoing request: {:?}", req);
+    trace!("outgoing request: {req:?}");
 
     let client = reqwest::blocking::Client::new();
     let resp = client.post(URL).json(&req).send();
@@ -222,7 +226,13 @@ fn handle_world_query(words: &Vec<&str>, ns: impl AsRef<str>) -> Message {
     let words = words
         .iter()
         .skip(1)
-        .map(|&s| format!("{}::{}", ns.as_ref(), s))
+        .map(|&s| {
+            if s.starts_with("::") {
+                format!("{}{}", ns.as_ref(), s)
+            } else {
+                s.to_string()
+            }
+        })
         .collect::<Vec<_>>();
 
     info!("assembling query: {words:?}");
@@ -415,7 +425,7 @@ fn view(state: &Ornis) -> Row<'_, Message> {
         .spacing(10),
         scrollable(structured_view(state))
             .id(STRUCTURED_VIEW_ID)
-            .width(FillPortion(2))
+            .width(FillPortion(4))
             .height(Fill)
             .spacing(10)
     ]
@@ -473,7 +483,7 @@ fn subscription(_state: &Ornis) -> iced::Subscription<Message> {
 fn main() -> iced::Result {
     simple_logger::SimpleLogger::new()
         .with_level(LevelFilter::Off)
-        .with_module_level("ornis", LevelFilter::max())
+        .with_module_level("ornis", LevelFilter::Info)
         .init()
         .unwrap();
     println!("initialized logging");

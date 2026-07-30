@@ -91,61 +91,58 @@ enum Message {
     PrintHelp(String),
 }
 
-macro_rules! enum_with_str {
-    ( $enum_name:ident, [ $( $variant:ident, )* ] ) => {
-        #[derive(Debug, Eq, PartialEq, Copy, Clone, Hash)]
-        pub enum $enum_name {
+macro_rules! define_commands {
+    ( $enum_name:ident, [ $( $variant:ident => [ names: [ $(  $name:expr$(,)? )+ ], help_short: $help:expr ] $(,)? )* ] ) => {
+        #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
+        enum $enum_name {
             $( $variant, )*
         }
 
-        #[allow(dead_code)]
         impl $enum_name {
-            const ALL: &[$enum_name] = &[ $( $enum_name::$variant, )*  ];
+            const ALL: &[$enum_name] = &[ $( $enum_name::$variant, )* ];
 
-            pub fn from_name(name: impl AsRef<str>) -> Option<$enum_name> {
-                match name.as_ref() {
-                    $( stringify!($variant) => Some(($enum_name::$variant)), )*
+            pub(crate) fn from_str(s: &str) -> Option<Command> {
+                use $enum_name::*;
+                match s {
+                    $(
+                        $( $name => Some($variant), )+
+                    )*
                     _ => None,
                 }
             }
 
-            pub fn to_string(&self) -> String {
+            pub(crate) fn name(self) -> &'static str {
+                use $enum_name::*;
                 match self {
-                    $( $enum_name::$variant => String::from(stringify!($variant)), )*
+                    $( $variant => stringify!($variant), )+
+                }
+            }
+
+            pub(crate) fn help_short(&self) -> &'static str {
+                use $enum_name::*;
+                match self {
+                    $( $variant => $help, )+
                 }
             }
         }
+
     };
 }
 
-enum_with_str!(
-    Command,
-    [
-        WorldQuery,
-        ListResources,
-        ListComponents,
-        ShowRegistry,
-        QueryRegistry,
-        PrintHelp,
+define_commands! (
+    Command, [
+        WorldQuery => [ names: ["q", "wq", "world.query", "query"], help_short: "query for entities which have one or more component" ],
+        ListComponents => [ names: ["lc", "l", "world.list_components", "list_components"], help_short: "list components w/ data on a single entity"],
+        // ListResources => [names: ["lr", "lres", "world.list_resources", "list_resources"], help_short: "list resources"],
+        ShowRegistry => [ names: ["sr", "sreg", "showreg"], help_short: "show types reported by bevy remote protocol" ],
+        QueryRegistry => [names: ["qr", "qreg", "queryreg"], help_short: "query registry of types via substring match"],
+        PrintHelp => [names: ["?", "help"], help_short: "print this help"],
     ]
 );
 
-impl From<&str> for Command {
-    fn from(value: &str) -> Self {
-        match value {
-            "wq" | "q" | "world.query" | "query" => Self::WorldQuery,
-            "lc" | "l" | "world.list_components" | "list_components" => Self::ListComponents,
-            "sr" | "sreg" | "showreg" => Command::ShowRegistry,
-            "qr" | "qreg" | "queryreg" => Command::QueryRegistry,
-            "?" | "help" => Self::PrintHelp,
-            _ => Self::PrintHelp,
-        }
-    }
-}
-
 fn handle_command(ornis: &mut Ornis) -> Message {
     let words: Vec<&str> = ornis.text_input.split_ascii_whitespace().collect();
-    let Some(command) = words.first().map(|it| Command::from(*it)) else {
+    let Some(command) = words.first().and_then(|it| Command::from_str(*it)) else {
         warn!("unrecognized command: {:?}", words);
         return Message::Noop;
     };
@@ -158,7 +155,6 @@ fn handle_command(ornis: &mut Ornis) -> Message {
         Command::ShowRegistry => Message::ShowRegistry,
         Command::QueryRegistry => handle_query_registry(&words, &ornis.registry),
         Command::PrintHelp => handle_print_help(&words, &ornis.current_ns),
-        _ => Message::Noop,
     }
 }
 
@@ -168,8 +164,13 @@ fn handle_print_help(_words: &[&str], _current_ns: impl AsRef<str>) -> Message {
     writeln!(out, "Ornis commands:").unwrap();
 
     for c in Command::ALL {
-        writeln!(out, "{}", c.to_string()).unwrap();
+        writeln!(out, "{} => {}", c.name(), c.help_short()).unwrap();
     }
+
+    writeln!(
+        out,
+        "NB: `#[reflect(Component)]` is required for types to appear in results even though they may appear in the registry."
+    ).unwrap();
 
     info!("help is: {}", out);
 
@@ -186,7 +187,7 @@ fn handle_query_registry(words: &Vec<&str>, lookup: &BTreeMap<String, Value>) ->
         out.push_str(&format!("### RESULTS FOR {word} ###\n"));
         for ty in lookup.keys() {
             if ty.to_lowercase().contains(&word.to_lowercase()) {
-                out.push_str(&format!("\t{ty}\n"))
+                out.push_str(&format!("\t- {ty}\n"))
             }
         }
     }

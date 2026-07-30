@@ -26,6 +26,7 @@ use reqwest::{
 use serde_json::Value;
 use simple_logger::{self};
 use std::collections::BTreeMap;
+use std::fmt::Write;
 
 use crate::rpc::*;
 
@@ -87,63 +88,67 @@ enum Message {
     CommandNext,
     UpdatePane,
     Delegate(Action),
+    PrintHelp(String),
 }
 
 macro_rules! enum_with_str {
-    ( $enum_name:ident, $( $variant:ident ),* $(,)?  ) => {
-        #[derive(Default, Debug, Eq, PartialEq, Copy, Clone, Hash)]
+    ( $enum_name:ident, [ $( $variant:ident, )* ] ) => {
+        #[derive(Debug, Eq, PartialEq, Copy, Clone, Hash)]
         pub enum $enum_name {
-            #[default]
-            Unset,
             $( $variant, )*
         }
 
         #[allow(dead_code)]
         impl $enum_name {
-            pub fn all() -> &'static [$enum_name] {
-                &[ $( $enum_name::$variant, )* ]
+            const ALL: &[$enum_name] = &[ $( $enum_name::$variant, )*  ];
+
+            pub fn from_name(name: impl AsRef<str>) -> Option<$enum_name> {
+                match name.as_ref() {
+                    $( stringify!($variant) => Some(($enum_name::$variant)), )*
+                    _ => None,
+                }
             }
 
-            pub fn pairs() -> &'static [(&'static str, $enum_name)] {
-                &[ $( (stringify!($variant), $enum_name::$variant), )* ]
-            }
-
-            pub fn from_name(value: impl AsRef<str>) -> Option<$enum_name> {
-                Self::pairs().iter().find(|(s, _)| value.as_ref() == *s).copied().map(|(_, v)| v)
+            pub fn to_string(&self) -> String {
+                match self {
+                    $( $enum_name::$variant => String::from(stringify!($variant)), )*
+                }
             }
         }
     };
 }
 
-impl Command {
-    fn from_str(s: impl AsRef<str>) -> Command {
-        let words: Vec<&str> = s.as_ref().split_ascii_whitespace().collect();
-        let Some(first) = words.first() else {
-            return Command::Unset;
-        };
+enum_with_str!(
+    Command,
+    [
+        WorldQuery,
+        ListResources,
+        ListComponents,
+        ShowRegistry,
+        QueryRegistry,
+        PrintHelp,
+    ]
+);
 
-        match *first {
-            "wq" | "q" | "world.query" | "query" => Command::WorldQuery,
-            "lc" | "l" | "world.list_components" | "list_components" => Command::ListComponents,
+impl From<&str> for Command {
+    fn from(value: &str) -> Self {
+        match value {
+            "wq" | "q" | "world.query" | "query" => Self::WorldQuery,
+            "lc" | "l" | "world.list_components" | "list_components" => Self::ListComponents,
             "sr" | "sreg" | "showreg" => Command::ShowRegistry,
             "qr" | "qreg" | "queryreg" => Command::QueryRegistry,
-            _ => Command::Unset,
+            "?" | "help" => Self::PrintHelp,
+            _ => Self::PrintHelp,
         }
     }
 }
 
-enum_with_str!(
-    Command,
-    WorldQuery,
-    ListResources,
-    ListComponents,
-    ShowRegistry,
-    QueryRegistry
-);
-
 fn handle_command(ornis: &mut Ornis) -> Message {
     let words: Vec<&str> = ornis.text_input.split_ascii_whitespace().collect();
-    let command = words.first().map(Command::from_str).unwrap_or_default();
+    let Some(command) = words.first().map(|it| Command::from(*it)) else {
+        warn!("unrecognized command: {:?}", words);
+        return Message::Noop;
+    };
 
     info!("command: {command:?}");
 
@@ -152,8 +157,23 @@ fn handle_command(ornis: &mut Ornis) -> Message {
         Command::ListComponents => handle_list_components(&words, &ornis.current_ns),
         Command::ShowRegistry => Message::ShowRegistry,
         Command::QueryRegistry => handle_query_registry(&words, &ornis.registry),
+        Command::PrintHelp => handle_print_help(&words, &ornis.current_ns),
         _ => Message::Noop,
     }
+}
+
+fn handle_print_help(_words: &[&str], _current_ns: impl AsRef<str>) -> Message {
+    let mut out = String::new();
+
+    writeln!(out, "Ornis commands:").unwrap();
+
+    for c in Command::ALL {
+        writeln!(out, "{}", c.to_string()).unwrap();
+    }
+
+    info!("help is: {}", out);
+
+    Message::PrintHelp(out)
 }
 
 const JSONRPC_VER: &'static str = "2.0";
@@ -180,6 +200,10 @@ fn handle_query_registry(words: &Vec<&str>, lookup: &BTreeMap<String, Value>) ->
 }
 
 fn handle_registry_req() -> Task<Message> {
+    if true {
+        return Task::none();
+    }
+
     let client = reqwest::blocking::Client::new();
 
     let Ok(params) = serde_json::to_value(RegistryParams {
@@ -198,7 +222,7 @@ fn handle_registry_req() -> Task<Message> {
 
     let resp_result = client.post(URL).json(&req).send();
 
-    info!("{resp_result:#?}");
+    info!("handle_registry_req: RESPONSE: {resp_result:#?}");
 
     match resp_result {
         Ok(resp) => match resp.json() {
@@ -462,7 +486,11 @@ fn update(state: &mut Ornis, message: Message) -> Task<Message> {
             state.text_content = Content::with_text(state.scrollback.join("\n").as_str());
             return snap_to_end(MAIN_OUTPUT_ID);
         }
-
+        Message::PrintHelp(msg) => {
+            state.scrollback.push(msg);
+            state.text_content = Content::with_text(state.scrollback.join("\n").as_str());
+            return snap_to_end(MAIN_INPUT_ID);
+        }
         _ => return Task::none(),
     }
     Task::none()

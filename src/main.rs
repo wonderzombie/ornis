@@ -148,7 +148,7 @@ fn handle_command(ornis: &mut Ornis) -> Message {
     info!("command: {command:?}");
 
     match command {
-        Command::WorldQuery => handle_world_query(&words, &ornis.current_ns),
+        Command::WorldQuery => handle_world_query(&words, &ornis.current_ns, &ornis.registry),
         Command::ListComponents => handle_list_components(&words, &ornis.current_ns),
         Command::ShowRegistry => Message::ShowRegistry,
         Command::QueryRegistry => handle_query_registry(&words, &ornis.registry),
@@ -255,26 +255,44 @@ fn handle_list_components(words: &Vec<&str>, _ns: impl AsRef<str>) -> Message {
     }
 }
 
-fn handle_world_query(words: &Vec<&str>, ns: impl AsRef<str>) -> Message {
+fn get_typepath(registry: &BTreeMap<String, Value>, key: &str) -> Option<String> {
+    registry
+        .get(key)?
+        .as_object()?
+        .get("typePath")
+        .map(|it| it.as_str())?
+        .map(String::from)
+}
+
+fn handle_world_query(
+    words: &Vec<&str>,
+    ns: impl AsRef<str>,
+    registry: &BTreeMap<String, Value>,
+) -> Message {
     trace!("handle_world_query");
 
-    let words = words
-        .iter()
-        .skip(1)
-        .map(|&s| {
-            if s.starts_with("::") {
-                format!("{}{}", ns.as_ref(), s)
-            } else {
-                s.to_string()
-            }
-        })
-        .collect::<Vec<_>>();
+    let mut components = vec![];
 
-    info!("assembling query: {words:?}");
+    for word in words.iter().skip(1) {
+        if word.starts_with("::") {
+            components.push(format!("{}{}", ns.as_ref(), word));
+        } else if word.starts_with("!") {
+            components.push(word.to_string());
+        } else if registry.contains_key(*word) {
+            let ty = match get_typepath(registry, word) {
+                Some(tp) => tp,
+                None => word.to_string(),
+            };
+            info!("found typepath: {}", ty);
+            components.push(ty);
+        }
+    }
+
+    info!("assembling query: {components:?}");
 
     let qp = QueryParams {
         data: QueryData {
-            components: words,
+            components,
             ..Default::default()
         },
         ..Default::default()
@@ -319,7 +337,6 @@ fn handle_world_query(words: &Vec<&str>, ns: impl AsRef<str>) -> Message {
 
 fn handle_query_resp(response: blocking::Response) -> Result<Message, anyhow::Error> {
     let val: Value = response.json().unwrap();
-
     match serde_json::from_value(val) {
         Ok(results) => {
             trace!("response val: {:?}", results);

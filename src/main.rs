@@ -17,7 +17,7 @@ use iced::{
         text_input,
     },
 };
-use log::{LevelFilter, error, info, trace};
+use log::{LevelFilter, error, info, trace, warn};
 use methods::*;
 use reqwest::{
     self,
@@ -25,6 +25,7 @@ use reqwest::{
 };
 use serde_json::Value;
 use simple_logger::{self};
+use std::collections::BTreeMap;
 
 use crate::rpc::*;
 
@@ -38,6 +39,7 @@ pub struct Ornis {
     command_hist: Vec<String>,
     hist_idx: usize,
     last_response: Vec<Structure>,
+    registry: BTreeMap<String, Value>,
 }
 
 #[derive(Default, Debug, Clone)]
@@ -62,6 +64,7 @@ impl Default for Ornis {
             command_hist: Default::default(),
             hist_idx: Default::default(),
             last_response: Default::default(),
+            registry: Default::default(),
         }
     }
 }
@@ -166,7 +169,7 @@ fn handle_registry_req() -> Task<Message> {
     match resp_result {
         Ok(resp) => match resp.json() {
             Ok(json) => {
-                trace!("handle_registry_req: RESPONSE JSON: {json:#?}");
+                info!("handle_registry_req: RESPONSE JSON: {json:#?}");
                 Task::done(Message::LoadRegistry(json))
             }
             Err(err) => {
@@ -235,14 +238,20 @@ fn handle_world_query(words: &Vec<&str>, ns: impl AsRef<str>) -> Message {
 
     info!("assembling query: {words:?}");
 
-    let Ok(params) = serde_json::to_value(QueryParams {
+    let qp = QueryParams {
         data: QueryData {
             components: words,
             ..Default::default()
         },
         ..Default::default()
-    }) else {
-        return Message::Noop;
+    };
+
+    let params = match serde_json::to_value(qp) {
+        Ok(query_params) => query_params,
+        Err(e) => {
+            error!("unable to convert query params: {e}");
+            return Message::Noop;
+        }
     };
 
     let req = BrpRequest {
@@ -355,8 +364,8 @@ fn update(state: &mut Ornis, message: Message) -> Task<Message> {
                 return snap_to_end(MAIN_OUTPUT_ID).chain(update_task);
             }
         }
-        Message::LoadRegistry(_) => {
-            return Task::none();
+        Message::LoadRegistry(brp_registry_resp) => {
+            load_registry(state, brp_registry_resp);
         }
         Message::CommandPrev => {
             state.text_input = state
@@ -391,6 +400,41 @@ fn update(state: &mut Ornis, message: Message) -> Task<Message> {
         _ => return Task::none(),
     }
     Task::none()
+}
+
+fn load_registry(state: &mut Ornis, registry_resp: BrpRegistryResponse) {
+    let mut ntypes = 0;
+    for (ty, type_info) in registry_resp.result.iter() {
+        let o = match type_info.as_object() {
+            Some(o) => o,
+            None => {
+                warn!("unable to deserialize info for {ty}");
+                continue;
+            }
+        };
+
+        let short_name = match o.get("shortPath").and_then(|it| it.as_str()) {
+            Some(s) => s,
+            None => {
+                warn!("unable to deserialize shortname for {ty}");
+                continue;
+            }
+        };
+
+        let type_path = match o.get("typePath").and_then(|it| it.as_str()) {
+            Some(p) => p,
+            None => {
+                warn!("unable to deserialize typepath for {ty}");
+                continue;
+            }
+        };
+
+        state.registry.insert(short_name.into(), type_info.clone());
+        state.registry.insert(type_path.into(), type_info.clone());
+        ntypes += 1;
+    }
+
+    info!("registered info for {ntypes} types");
 }
 
 const MAIN_INPUT_ID: &str = "main_input";

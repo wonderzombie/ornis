@@ -58,7 +58,7 @@ pub(crate) struct RegistryTypeLimit {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub(crate) struct BrpRegistryResponse {
-    result: Map<String, Value>,
+    pub(crate) result: Map<String, Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]

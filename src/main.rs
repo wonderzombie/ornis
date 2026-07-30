@@ -80,6 +80,8 @@ enum Message {
     QueryResults(BrpQueryResponse),
     ComponentsList(BrpListComponentsResponse),
     LoadRegistry(BrpRegistryResponse),
+    ShowRegistry,
+    QueryRegistry(String),
     OutputChanged,
     CommandPrev,
     CommandNext,
@@ -123,12 +125,21 @@ impl Command {
         match *first {
             "wq" | "q" | "world.query" | "query" => Command::WorldQuery,
             "lc" | "l" | "world.list_components" | "list_components" => Command::ListComponents,
+            "sr" | "sreg" | "showreg" => Command::ShowRegistry,
+            "qr" | "qreg" | "queryreg" => Command::QueryRegistry,
             _ => Command::Unset,
         }
     }
 }
 
-enum_with_str!(Command, WorldQuery, ListResources, ListComponents);
+enum_with_str!(
+    Command,
+    WorldQuery,
+    ListResources,
+    ListComponents,
+    ShowRegistry,
+    QueryRegistry
+);
 
 fn handle_command(ornis: &mut Ornis) -> Message {
     let words: Vec<&str> = ornis.text_input.split_ascii_whitespace().collect();
@@ -139,11 +150,34 @@ fn handle_command(ornis: &mut Ornis) -> Message {
     match command {
         Command::WorldQuery => handle_world_query(&words, &ornis.current_ns),
         Command::ListComponents => handle_list_components(&words, &ornis.current_ns),
+        Command::ShowRegistry => Message::ShowRegistry,
+        Command::QueryRegistry => handle_query_registry(&words, &ornis.registry),
         _ => Message::Noop,
     }
 }
 
 const JSONRPC_VER: &'static str = "2.0";
+
+fn handle_query_registry(words: &Vec<&str>, lookup: &BTreeMap<String, Value>) -> Message {
+    info!("querying registry for strings: {words:?}");
+    let mut out = String::new();
+
+    for word in words.iter().skip(1) {
+        out.push_str(&format!("### RESULTS FOR {word} ###\n"));
+        for ty in lookup.keys() {
+            if ty.to_lowercase().contains(&word.to_lowercase()) {
+                out.push_str(&format!("\t{ty}\n"))
+            }
+        }
+    }
+
+    if out.is_empty() {
+        info!("no results for any of {words:?}");
+        out.push_str(&format!("### No results for any word in {words:?} ###\n"));
+    }
+
+    Message::QueryRegistry(out)
+}
 
 fn handle_registry_req() -> Task<Message> {
     let client = reqwest::blocking::Client::new();
@@ -397,6 +431,21 @@ fn update(state: &mut Ornis, message: Message) -> Task<Message> {
             state.text_content = Content::with_text(state.scrollback.join("\n").as_str());
             return snap_to_end(MAIN_OUTPUT_ID);
         }
+        Message::ShowRegistry => {
+            let mut out = String::new();
+            for ty in state.registry.keys() {
+                out.push_str(&format!("{ty}\n"));
+            }
+            state.scrollback.push(out);
+            state.text_content = Content::with_text(state.scrollback.join("\n").as_str());
+            return snap_to_end(MAIN_OUTPUT_ID);
+        }
+        Message::QueryRegistry(output) => {
+            state.scrollback.push(output);
+            state.text_content = Content::with_text(state.scrollback.join("\n").as_str());
+            return snap_to_end(MAIN_OUTPUT_ID);
+        }
+
         _ => return Task::none(),
     }
     Task::none()

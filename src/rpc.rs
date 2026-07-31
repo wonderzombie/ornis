@@ -27,8 +27,8 @@ pub(crate) struct QueryData {
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub(crate) struct QueryFilter {
-    with: Vec<String>,
-    without: Vec<String>,
+    pub(crate) with: Vec<String>,
+    pub(crate) without: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

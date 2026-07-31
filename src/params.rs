@@ -2,17 +2,20 @@ use anyhow::bail;
 
 use crate::rpc::QueryParams;
 
+#[derive(Debug)]
 pub enum QData {
     Required,
     Optional,
     Has,
 }
 
+#[derive(Debug)]
 pub enum QFilter {
     With,
     Without,
 }
 
+#[derive(Debug)]
 pub enum QParam {
     Query(QData),
     Filter(QFilter),

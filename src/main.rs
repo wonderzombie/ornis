@@ -135,9 +135,8 @@ define_commands! (
     Command, [
         WorldQuery => [ names: ["q", "wq", "world.query", "query"], help_short: "query for entities which have one or more component" ],
         ListComponents => [ names: ["lc", "l", "world.list_components", "list_components"], help_short: "list components w/ data on a single entity"],
-        // ListResources => [names: ["lr", "lres", "world.list_resources", "list_resources"], help_short: "list resources"],
-        ShowRegistry => [ names: ["sr", "sreg", "showreg"], help_short: "show types reported by bevy remote protocol" ],
-        QueryRegistry => [names: ["qr", "qreg", "queryreg"], help_short: "query registry of types via substring match"],
+        ListRegistry => [ names: ["lr", "lreg", "listreg"], help_short: "show types reported by bevy remote protocol" ],
+        SearchRegistry => [names: ["sr", "sreg", "searchreg"], help_short: "query registry of types via substring match"],
         PrintHelp => [names: ["?", "help"], help_short: "print this help"],
     ]
 );
@@ -154,8 +153,8 @@ fn handle_command(ornis: &mut Ornis) -> Message {
     match command {
         Command::WorldQuery => handle_world_query(&words, &ornis.current_ns, &ornis.registry),
         Command::ListComponents => handle_list_components(&words, &ornis.current_ns),
-        Command::ShowRegistry => Message::ShowRegistry,
-        Command::QueryRegistry => handle_query_registry(&words, &ornis.registry),
+        Command::ListRegistry => Message::ShowRegistry,
+        Command::SearchRegistry => handle_query_registry(&words, &ornis.registry),
         Command::PrintHelp => handle_print_help(&words, &ornis.current_ns),
     }
 }
@@ -286,9 +285,9 @@ fn get_typepath(registry: &BTreeMap<String, Value>, key: &str) -> Option<String>
     registry
         .get(key)?
         .as_object()?
-        .get("typePath")
-        .map(|it| it.as_str())?
-        .map(String::from)
+        .get("typePath")?
+        .as_str()
+        .map(|it| String::from(it))
 }
 
 fn handle_world_query(
@@ -296,7 +295,7 @@ fn handle_world_query(
     ns: impl AsRef<str>,
     registry: &BTreeMap<String, Value>,
 ) -> Message {
-    trace!("handle_world_query");
+    info!("handle_world_query {words:?}");
 
     let mut components = vec![];
 
@@ -355,11 +354,11 @@ fn handle_world_query(
 
     match resp {
         Ok(http_resp) => {
-            trace!("handle_world_query: resp {:?}", http_resp);
+            trace!("handle_world_query: ok: {:?}", http_resp);
             handle_query_resp(http_resp).unwrap_or(Message::Noop)
         }
         Err(err) => {
-            error!("handle_world_query: err {}", err);
+            error!("handle_world_query: error: {}", err);
             Message::Noop
         }
     }
@@ -534,8 +533,12 @@ fn load_registry(state: &mut Ornis, registry_resp: BrpRegistryResponse) {
             }
         };
 
-        state.registry.insert(short_name.into(), type_info.clone());
-        state.registry.insert(type_path.into(), type_info.clone());
+        state
+            .registry
+            .insert(short_name.to_lowercase().into(), type_info.clone());
+        state
+            .registry
+            .insert(type_path.to_lowercase().into(), type_info.clone());
         ntypes += 1;
     }
 

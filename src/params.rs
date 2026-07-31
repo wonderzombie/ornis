@@ -1,5 +1,5 @@
 use anyhow::bail;
-use log::info;
+use log::{info, trace};
 
 use crate::rpc::QueryParams;
 
@@ -44,14 +44,10 @@ impl QParam {
     }
 }
 
-pub(crate) fn parse(words: &[String]) -> Result<QueryParams, anyhow::Error> {
+pub(crate) fn collect(items: impl IntoIterator<Item = (QParam, String)>) -> QueryParams {
     let mut qp = QueryParams::default();
 
-    info!("words are {words:?}");
-
-    for w in words {
-        info!("parsing {w:?}");
-        let (ty, name) = QParam::parse(w.as_ref())?;
+    for (ty, name) in items {
         let bucket = match ty {
             QParam::Filter(QFilter::With) => &mut qp.filter.with,
             QParam::Filter(QFilter::Without) => &mut qp.filter.without,
@@ -59,11 +55,10 @@ pub(crate) fn parse(words: &[String]) -> Result<QueryParams, anyhow::Error> {
             QParam::Query(QData::Optional) => &mut qp.data.option,
             QParam::Query(QData::Has) => &mut qp.data.has,
         };
-        info!("parsed: {:?}", (ty, name));
+        trace!("parsed: {:?}", (ty, &name));
         bucket.push(name.to_owned());
     }
-
-    Ok(qp)
+    qp
 }
 
 #[cfg(test)]
@@ -114,77 +109,62 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_words_simple() {
-        let tokens: Vec<String> = vec!["tiles::TileIdx".into(), "+tiles::Revealed".into()];
-        let qp = parse(&tokens).expect("expected {tokens:?} to parse");
+    fn test_collect_tokens_simple() {
+        let tokens = vec![
+            (
+                QParam::Query(QData::Required),
+                "wanderrust::tiles::TileIdx".into(),
+            ),
+            (
+                QParam::Filter(QFilter::With),
+                "wanderrust::tiles::Revealed".into(),
+            ),
+        ];
+        let collected = collect(tokens);
 
         let expected = QueryParams {
             data: QueryData {
-                components: vec!["tiles::TileIdx".into()],
+                components: vec!["wanderrust::tiles::TileIdx".into()],
                 ..Default::default()
             },
             filter: QueryFilter {
-                with: vec!["tiles::Revealed".into()],
+                with: vec!["wanderrust::tiles::Revealed".into()],
                 ..Default::default()
             },
             ..Default::default()
         };
 
-        assert_eq!(expected, qp);
+        assert_eq!(expected, collected);
     }
 
     #[test]
-    fn test_parse_words_variety() {
-        let tokens: Vec<String> = vec![
-            "Actor".into(),
-            "#Alerted".into(),
-            "-NextPos".into(),
-            "+AgentOfGrid".into(),
+    fn test_collect_tokens_variety() {
+        let tokens = vec![
+            (QParam::Query(QData::Required), "Actor".into()),
+            (QParam::Query(QData::Required), "Combatant".into()),
+            (QParam::Query(QData::Has), "HasEquipped".into()),
+            (QParam::Query(QData::Optional), "Alerted".into()),
+            ((QParam::Filter(QFilter::With)), "AgentOfGrid".into()),
+            ((QParam::Filter(QFilter::Without)), "NextPos".into()),
+            ((QParam::Filter(QFilter::Without)), "MapTile".into()),
         ];
-        let qp = parse(&tokens).expect("expected a small variety of tokens to parse");
+        let collected = collect(tokens);
 
         let expected = QueryParams {
             data: QueryData {
-                components: vec!["Actor".into()],
-                has: vec!["Alerted".into()],
-                option: vec![],
+                // Unfortunately ordering here must match the order of the input above.
+                components: vec!["Actor".into(), "Combatant".into()],
+                has: vec!["HasEquipped".into()],
+                option: vec!["Alerted".into()],
             },
             filter: QueryFilter {
                 with: vec!["AgentOfGrid".into()],
-                without: vec!["NextPos".into()],
+                // Unfortunately, again, ordering here must match the order of the input above.
+                without: vec!["NextPos".into(), "MapTile".into()],
             },
             ..Default::default()
         };
 
-        assert_eq!(expected, qp);
-    }
-
-    #[test]
-    fn test_parse_words_mixed_order() {
-        let tokens: Vec<String> = vec![
-            "+AgentOfGrid".into(),
-            "Actor".into(),
-            "-NextPos".into(),
-            "@HasEquipped".into(),
-            "+FixedLoot".into(),
-            "#Alerted".into(),
-            "Combatant".into(),
-        ];
-        let qp = parse(&tokens).expect("expected a small variety of tokens to parse");
-
-        let expected = QueryParams {
-            data: QueryData {
-                components: vec!["Actor".into(), "Combatant".into()],
-                option: vec!["HasEquipped".into()],
-                has: vec!["Alerted".into()],
-            },
-            filter: QueryFilter {
-                with: vec!["AgentOfGrid".into(), "FixedLoot".into()],
-                without: vec!["NextPos".into()],
-            },
-            ..Default::default()
-        };
-
-        assert_eq!(expected, qp);
+        assert_eq!(expected, collected);
     }
 }

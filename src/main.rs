@@ -2,7 +2,7 @@ mod methods;
 mod params;
 mod rpc;
 
-use anyhow::anyhow;
+use anyhow::{anyhow, bail};
 use iced::widget::text;
 use iced::{
     Element, Event, Font,
@@ -29,6 +29,7 @@ use simple_logger::{self};
 use std::collections::BTreeMap;
 use std::fmt::Write;
 
+use crate::params::QParam;
 use crate::rpc::*;
 
 #[derive(Debug, Clone)]
@@ -82,7 +83,7 @@ enum Message {
     QueryResults(BrpQueryResponse),
     ComponentsList(BrpListComponentsResponse),
     LoadRegistry(BrpRegistryResponse),
-    ShowRegistry,
+    ListRegistry,
     QueryRegistry(String),
     OutputChanged,
     CommandPrev,
@@ -141,21 +142,21 @@ define_commands! (
     ]
 );
 
-fn handle_command(ornis: &mut Ornis) -> Message {
+fn handle_command(ornis: &mut Ornis) -> Result<Message, anyhow::Error> {
     let words: Vec<&str> = ornis.text_input.split_ascii_whitespace().collect();
     let Some(command) = words.first().and_then(|it| Command::from_str(*it)) else {
         warn!("unrecognized command: {:?}", words);
-        return Message::Noop;
+        return Ok(Message::Noop);
     };
 
     info!("command: {command:?}");
 
     match command {
-        Command::WorldQuery => handle_world_query(&words, &ornis.current_ns, &ornis.registry),
+        Command::WorldQuery => handle_world_query(&words, &ornis.registry),
         Command::ListComponents => handle_list_components(&words, &ornis.current_ns),
-        Command::ListRegistry => Message::ShowRegistry,
-        Command::SearchRegistry => handle_query_registry(&words, &ornis.registry),
-        Command::PrintHelp => handle_print_help(&words, &ornis.current_ns),
+        Command::ListRegistry => Ok(Message::ListRegistry),
+        Command::SearchRegistry => Ok(handle_query_registry(&words, &ornis.registry)),
+        Command::PrintHelp => Ok(handle_print_help(&words, &ornis.current_ns)),
     }
 }
 
@@ -201,15 +202,13 @@ fn handle_query_registry(words: &Vec<&str>, lookup: &BTreeMap<String, Value>) ->
     Message::QueryRegistry(out)
 }
 
-fn handle_registry_req() -> Task<Message> {
+fn handle_registry_req() -> Result<Message, anyhow::Error> {
     let client = reqwest::blocking::Client::new();
 
-    let Ok(params) = serde_json::to_value(RegistryParams {
+    let params = serde_json::to_value(RegistryParams {
         with_crates: vec!["wanderrust".into()],
         ..Default::default()
-    }) else {
-        return Task::none();
-    };
+    })?;
 
     let req = BrpRequest {
         jsonrpc: JSONRPC_VER.to_string(),
@@ -218,41 +217,26 @@ fn handle_registry_req() -> Task<Message> {
         ..Default::default()
     };
 
-    let resp_result = client.post(URL).json(&req).send();
+    let j = client.post(URL).json(&req).send()?.json()?;
 
-    info!("handle_registry_req: RESPONSE: {resp_result:#?}");
-
-    match resp_result {
-        Ok(resp) => match resp.json() {
-            Ok(json) => {
-                info!("handle_registry_req: RESPONSE JSON: {json:#?}");
-                Task::done(Message::LoadRegistry(json))
-            }
-            Err(err) => {
-                error!("handle_registry_req: json: {err}");
-                Task::none()
-            }
-        },
-        Err(err) => {
-            error!("handle_registry_req: {}", err);
-            Task::none()
-        }
-    }
+    Ok(Message::LoadRegistry(j))
 }
 
-fn handle_list_components(words: &Vec<&str>, _ns: impl AsRef<str>) -> Message {
+fn handle_list_components(
+    words: &Vec<&str>,
+    _ns: impl AsRef<str>,
+) -> Result<Message, anyhow::Error> {
     trace!("handle_list_components");
 
-    let Some(entity_str) = words.iter().nth(1) else {
-        return Message::Noop;
-    };
+    let entity_str = words
+        .iter()
+        .nth(1)
+        .ok_or(anyhow!("entity name missing from {words:?}"))?;
 
     let entity = i64::from_str_radix(entity_str, 10).unwrap_or_default();
     trace!("querying for entity {entity_str} as {entity:?}");
 
-    let Ok(params) = serde_json::to_value(ListComponentsParams { entity }) else {
-        return Message::Noop;
-    };
+    let params = serde_json::to_value(ListComponentsParams { entity })?;
 
     let req = BrpRequest {
         jsonrpc: JSONRPC_VER.to_string(),
@@ -263,18 +247,9 @@ fn handle_list_components(words: &Vec<&str>, _ns: impl AsRef<str>) -> Message {
     trace!("outgoing request: {req:?}");
 
     let client = reqwest::blocking::Client::new();
-    let resp = client.post(URL).json(&req).send();
+    let http_resp = client.post(URL).json(&req).send()?;
 
-    match resp {
-        Ok(http_resp) => {
-            trace!("handle_get_components: resp {http_resp:?}");
-            handle_list_components_resp(http_resp).unwrap_or(Message::Noop)
-        }
-        Err(err) => {
-            error!("handle_get_components: err {err}");
-            return Message::Noop;
-        }
-    }
+    handle_list_components_resp(http_resp)
 }
 
 fn get_typepath(registry: &BTreeMap<String, Value>, key: &str) -> Option<String> {
@@ -288,48 +263,16 @@ fn get_typepath(registry: &BTreeMap<String, Value>, key: &str) -> Option<String>
 
 fn handle_world_query(
     words: &Vec<&str>,
-    ns: impl AsRef<str>,
     registry: &BTreeMap<String, Value>,
-) -> Message {
+) -> Result<Message, anyhow::Error> {
     info!("handle_world_query {words:?}");
 
-    let mut components = vec![];
-
-    for word in words.iter().skip(1) {
-        if word.starts_with("::") {
-            components.push(format!("{}{}", ns.as_ref(), word));
-        } else if word.starts_with("!") {
-            components.push(word.to_string());
-        } else if registry.contains_key(*word) {
-            let ty = match get_typepath(registry, word) {
-                Some(tp) => tp,
-                None => word.to_string(),
-            };
-            info!("found typepath: {}", ty);
-            components.push(ty);
-        } else {
-            warn!("skipping {word}");
-            // TODO: lol error handling lol
-            continue;
-        }
-    }
-
-    let query_params = match params::parse(&components) {
-        Ok(params) => params,
-        Err(e) => {
-            return Message::Error(format!("error: {e:?}"));
-        }
-    };
+    let resolved = resolve_query(words, registry)?;
+    let query_params = params::collect(resolved);
 
     info!("assembled query parameters: {query_params:?}");
 
-    let params = match serde_json::to_value(query_params) {
-        Ok(query_params) => query_params,
-        Err(e) => {
-            error!("unable to convert query params: {e}");
-            return Message::Noop;
-        }
-    };
+    let params = serde_json::to_value(query_params)?;
 
     let req = BrpRequest {
         jsonrpc: JSONRPC_VER.to_string(),
@@ -338,24 +281,38 @@ fn handle_world_query(
         ..Default::default()
     };
 
-    if let Ok(json) = serde_json::to_string_pretty(&req) {
-        trace!("{:?}", req);
-        trace!("json: {}", json);
-    }
+    let json = serde_json::to_string_pretty(&req)?;
+    trace!("{:?}", req);
+    trace!("json: {}", json);
 
     let client = reqwest::blocking::Client::new();
-    let resp = client.post(URL).json(&req).send();
+    let resp = client.post(URL).json(&req).send()?;
 
-    match resp {
-        Ok(http_resp) => {
-            trace!("handle_world_query: ok: {:?}", http_resp);
-            handle_query_resp(http_resp).unwrap_or(Message::Noop)
-        }
-        Err(err) => {
-            error!("handle_world_query: error: {}", err);
-            Message::Noop
+    handle_query_resp(resp)
+}
+
+fn resolve_query(
+    words: &Vec<&str>,
+    registry: &BTreeMap<String, Value>,
+) -> Result<Vec<(QParam, String)>, anyhow::Error> {
+    let mut resolved = Vec::new();
+    let mut unknown = Vec::new();
+    for w in words.iter().skip(1) {
+        // TODO: use ? alongside Result
+        let (ty, name) = QParam::parse(w)?;
+
+        match name.strip_prefix('!') {
+            Some(literal) => resolved.push((ty, literal.to_string())),
+            None => match get_typepath(registry, name) {
+                Some(path) => resolved.push((ty, path)),
+                None => unknown.push(name.to_string()),
+            },
         }
     }
+    if !unknown.is_empty() {
+        bail!(format!("unknown component(s): {}", unknown.join(" ")));
+    }
+    Ok(resolved)
 }
 
 fn handle_query_resp(response: blocking::Response) -> Result<Message, anyhow::Error> {
@@ -418,9 +375,12 @@ fn update(state: &mut Ornis, message: Message) -> Task<Message> {
             state.text_content = Content::with_text(state.scrollback.join("\n").as_str());
             state.command_hist.push(state.text_input.clone());
             state.hist_idx = 0;
-            let m = handle_command(state);
+            let out = match handle_command(state) {
+                Ok(m) => Task::done(m),
+                Err(e) => Task::done(Message::Error(format!("error handling command: {e}"))),
+            };
             state.text_input.clear();
-            return Task::done(m);
+            return out;
         }
         Message::ContentChanged(new_input) => {
             state.text_input = new_input;
@@ -429,7 +389,10 @@ fn update(state: &mut Ornis, message: Message) -> Task<Message> {
             info!("welcome to ornis");
             state.scrollback = vec!["=== welcome to ornis ===".into()];
             state.text_content = Content::with_text(state.scrollback.join("\n").as_str());
-            return focus(MAIN_INPUT_ID).chain(handle_registry_req());
+            let out = handle_registry_req()
+                .unwrap_or(Message::Error("unable to read registry from bevy".into()));
+            // TODO: map the Result's error type to `Message::Error`.
+            return focus(MAIN_INPUT_ID).chain(Task::done(out));
         }
         Message::QueryResults(mut resp) => {
             resp.result.truncate(20);
@@ -476,7 +439,7 @@ fn update(state: &mut Ornis, message: Message) -> Task<Message> {
             state.text_content = Content::with_text(state.scrollback.join("\n").as_str());
             return snap_to_end(MAIN_OUTPUT_ID);
         }
-        Message::ShowRegistry => {
+        Message::ListRegistry => {
             let mut out = String::new();
             for ty in state.registry.keys() {
                 out.push_str(&format!("{ty}\n"));

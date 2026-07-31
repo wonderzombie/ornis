@@ -38,9 +38,10 @@ pub(crate) struct BrpQueryResponse {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub(crate) struct BrpEntity {
-    pub(crate) components: HashMap<String, Value>,
+    pub(crate) components: HashMap<String, Option<Value>>,
     #[serde(rename = "entity")]
     pub(crate) id: i64,
+    pub(crate) has: Option<HashMap<String, bool>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]

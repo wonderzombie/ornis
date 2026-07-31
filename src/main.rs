@@ -50,7 +50,7 @@ enum Structure {
     #[default]
     Empty,
     Entity(String),
-    Component(String, Value),
+    Component(String, Option<Value>),
 }
 
 const URL: &str = "http://localhost:15702";
@@ -352,7 +352,13 @@ fn update_pane(state: &mut Ornis, resp: &BrpQueryResponse) -> Task<Message> {
     for entity in resp.result.iter() {
         structures.push(Structure::Entity(format!("{}", entity.id)));
         for c in &entity.components {
-            structures.push(Structure::Component(c.0.clone(), c.1.clone()))
+            structures.push(Structure::Component(c.0.clone(), c.1.clone()));
+        }
+
+        if let Some(has) = &entity.has {
+            for c in has {
+                structures.push(Structure::Component(c.0.clone(), Some(Value::Bool(*c.1))));
+            }
         }
     }
 
@@ -553,7 +559,11 @@ fn structured_view(state: &Ornis) -> impl Into<Element<'_, Message>> {
             }
             Structure::Component(name, val) => row![
                 mono_text("   •".into(), Alignment::Right),
-                mono_text(format!("{}: {}", name, val), Alignment::Left)
+                if let Some(val) = val {
+                    mono_text(format!("{name}: {:?}", val.as_str()), Alignment::Left)
+                } else {
+                    mono_text(format!("{name}"), Alignment::Left)
+                }
             ]
             .spacing(10),
             _ => continue,

@@ -24,22 +24,20 @@ impl QParam {
         use QData::*;
         use QFilter::*;
 
-        let ty = match token.chars().next() {
-            Some('+') => Self::Filter(With),
-            Some('-') => Self::Filter(Without),
-            Some('@') => Self::Query(Optional),
-            Some('#') => Self::Query(Has),
-            Some(c) if c.is_alphabetic() || c == '_' => {
-                return Ok((QParam::Query(Required), token));
-            }
-            Some(c) => bail!("unrecognized sigil {c:?} in {token:?}"),
+        let (ty, rest) = match token.chars().next() {
+            Some('+') => (Self::Filter(With), &token[1..]),
+            Some('-') => (Self::Filter(Without), &token[1..]),
+            Some('@') => (Self::Query(Optional), &token[1..]),
+            Some('#') => (Self::Query(Has), &token[1..]),
+            Some(_) => (QParam::Query(Required), token),
             None => bail!("empty query token"),
         };
 
-        match &token[1..] {
-            "" => bail!("bare sigil with no component: {token:?}"),
-            rest => Ok((ty, rest)),
+        if rest.is_empty() {
+            bail!("bare sigil with no component: {token:?}");
         }
+
+        Ok((ty, rest))
     }
 }
 

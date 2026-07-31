@@ -500,7 +500,7 @@ fn update(state: &mut Ornis, message: Message) -> Task<Message> {
         Message::PrintHelp(msg) => {
             state.scrollback.push(msg);
             state.text_content = Content::with_text(state.scrollback.join("\n").as_str());
-            return snap_to_end(MAIN_INPUT_ID);
+            return snap_to_end(MAIN_OUTPUT_ID);
         }
         _ => return Task::none(),
     }

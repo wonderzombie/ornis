@@ -1,5 +1,4 @@
 use anyhow::bail;
-use iced::overlay::menu::default;
 
 use crate::rpc::QueryParams;
 

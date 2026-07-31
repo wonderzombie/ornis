@@ -1,4 +1,5 @@
 mod methods;
+mod params;
 mod rpc;
 
 use anyhow::anyhow;

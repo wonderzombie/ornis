@@ -288,6 +288,8 @@ fn handle_world_query(
     let client = reqwest::blocking::Client::new();
     let resp = client.post(URL).json(&req).send()?;
 
+    trace!("http resp: {:?}", resp);
+
     handle_query_resp(resp)
 }
 
@@ -316,14 +318,16 @@ fn resolve_query(
 }
 
 fn handle_query_resp(response: blocking::Response) -> Result<Message, anyhow::Error> {
-    let val: Value = response.json().unwrap();
+    let val: Value = response.json()?;
+    info!("json resp: {:?}", val);
+
     match serde_json::from_value(val) {
         Ok(results) => {
-            trace!("response val: {:?}", results);
+            trace!("BrpQueryResponse: {:?}", results);
             Ok(Message::QueryResults(results))
         }
         Err(err) => {
-            error!("{}", err);
+            error!("handle_query_resp: {}", err);
             Err(anyhow!(err))
         }
     }

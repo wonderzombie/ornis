@@ -308,8 +308,9 @@ fn handle_world_query(
             info!("found typepath: {}", ty);
             components.push(ty);
         } else {
+            warn!("skipping {word}");
             // TODO: lol error handling lol
-            return Message::Noop;
+            continue;
         }
     }
 
@@ -320,7 +321,9 @@ fn handle_world_query(
         }
     };
 
-    let params = match serde_json::to_value(qp) {
+    info!("assembled query parameters: {query_params:?}");
+
+    let params = match serde_json::to_value(query_params) {
         Ok(query_params) => query_params,
         Err(e) => {
             error!("unable to convert query params: {e}");

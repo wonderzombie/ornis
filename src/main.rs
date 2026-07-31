@@ -170,7 +170,7 @@ fn handle_print_help(_words: &[&str], _current_ns: impl AsRef<str>) -> Message {
 
     writeln!(
         out,
-        "NB: `#[reflect(Component)]` is required for types to appear in results even though they may appear in the registry."
+        "NB: `If you see empty results, check the component you're querying in the source. #[reflect(Component)]` is required for types used in queries to show their data, and it's not the default."
     ).unwrap();
 
     info!("help is: {}", out);
@@ -202,10 +202,6 @@ fn handle_query_registry(words: &Vec<&str>, lookup: &BTreeMap<String, Value>) ->
 }
 
 fn handle_registry_req() -> Task<Message> {
-    if true {
-        return Task::none();
-    }
-
     let client = reqwest::blocking::Client::new();
 
     let Ok(params) = serde_json::to_value(RegistryParams {
@@ -317,14 +313,11 @@ fn handle_world_query(
         }
     }
 
-    info!("assembling query: {components:?}");
-
-    let qp = QueryParams {
-        data: QueryData {
-            components,
-            ..Default::default()
-        },
-        ..Default::default()
+    let query_params = match params::parse(&components) {
+        Ok(params) => params,
+        Err(e) => {
+            return Message::Error(format!("error: {e:?}"));
+        }
     };
 
     let params = match serde_json::to_value(qp) {
@@ -346,8 +339,6 @@ fn handle_world_query(
         trace!("{:?}", req);
         trace!("json: {}", json);
     }
-
-    trace!("outgoing request: {:?}", req);
 
     let client = reqwest::blocking::Client::new();
     let resp = client.post(URL).json(&req).send();

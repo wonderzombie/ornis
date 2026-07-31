@@ -90,6 +90,7 @@ enum Message {
     UpdatePane,
     Delegate(Action),
     PrintHelp(String),
+    Error(String),
 }
 
 macro_rules! define_commands {
@@ -311,6 +312,9 @@ fn handle_world_query(
             };
             info!("found typepath: {}", ty);
             components.push(ty);
+        } else {
+            // TODO: lol error handling lol
+            return Message::Noop;
         }
     }
 
@@ -409,6 +413,11 @@ fn update_pane(state: &mut Ornis, resp: &BrpQueryResponse) -> Task<Message> {
 
 fn update(state: &mut Ornis, message: Message) -> Task<Message> {
     match message {
+        Message::Error(e) => {
+            state.scrollback.push(format!("!! {e}"));
+            state.text_content = Content::with_text(state.scrollback.join("\n").as_str());
+            return snap_to_end(MAIN_OUTPUT_ID);
+        }
         Message::EnterPressed => {
             state
                 .scrollback

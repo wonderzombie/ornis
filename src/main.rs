@@ -52,6 +52,8 @@ const URL: &str = "http://localhost:15702";
 
 const CRATE_PATH: &str = "wanderrust";
 
+const MAX_RESULTS: usize = 100;
+
 impl Default for Ornis {
     fn default() -> Self {
         Self {
@@ -217,8 +219,7 @@ fn handle_list_components(words: &Vec<&str>, _ns: impl AsRef<str>) -> Result<Mes
     let entity = i64::from_str_radix(entity_str, 10).unwrap_or_default();
     trace!("querying for entity {entity_str} as {entity:?}");
 
-    let req = ListComponentsParams { entity };
-    rpc::send(req)
+    rpc::send(ListComponentsParams { entity })
 }
 
 fn get_typepath(registry: &BTreeMap<String, Value>, key: &str) -> Option<String> {
@@ -265,18 +266,19 @@ fn resolve_query(
     Ok(resolved)
 }
 
-fn update_pane(state: &mut Ornis, resp: &BrpQueryResponse) -> Task<Message> {
+fn update_structured_view(state: &mut Ornis, resp: &BrpQueryResponse) -> Task<Message> {
     let mut structures: Vec<Structure> = vec![];
 
     for entity in resp.result.iter() {
         structures.push(Structure::Entity(format!("{}", entity.id)));
-        for c in &entity.components {
-            structures.push(Structure::Component(c.0.clone(), c.1.clone()));
+        for (name, val_opt) in &entity.components {
+            structures.push(Structure::Component(name.clone(), val_opt.clone()));
         }
 
         if let Some(has) = &entity.has {
-            for c in has {
-                structures.push(Structure::Component(c.0.clone(), Some(Value::Bool(*c.1))));
+            for (name, boolean) in has {
+                let b = Value::Bool(*boolean);
+                structures.push(Structure::Component(name.clone(), Some(b)));
             }
         }
     }
@@ -320,13 +322,13 @@ fn update(state: &mut Ornis, message: Message) -> Task<Message> {
             return focus(MAIN_INPUT_ID).chain(Task::done(out));
         }
         Message::QueryResults(mut resp) => {
-            resp.result.truncate(20);
+            resp.result.truncate(MAX_RESULTS);
             let out = serde_json::to_string_pretty::<BrpQueryResponse>(&resp);
             if let Ok(out) = out {
                 state.scrollback.push(out);
                 state.text_content = Content::with_text(state.scrollback.join("\n").as_str());
 
-                let update_task = update_pane(state, &resp);
+                let update_task = update_structured_view(state, &resp);
 
                 return snap_to_end(MAIN_OUTPUT_ID).chain(update_task);
             }
@@ -468,7 +470,7 @@ fn mono_text<'a>(t: String, align: Alignment) -> Element<'a, Message> {
     text(t).align_x(align).font(Font::MONOSPACE).size(11).into()
 }
 
-fn structured_view(state: &Ornis) -> impl Into<Element<'_, Message>> {
+fn structured_view(state: &Ornis) -> Element<'_, Message> {
     let mut col = column![text("last response").font(Font::MONOSPACE)];
 
     for item in state.last_response.iter() {
@@ -476,21 +478,23 @@ fn structured_view(state: &Ornis) -> impl Into<Element<'_, Message>> {
             Structure::Entity(id) => {
                 row![mono_text(format!("‣ {}", id), Alignment::Left)].spacing(10)
             }
-            Structure::Component(name, val) => row![
+            Structure::Component(name, Some(val)) => row![
                 mono_text("   •".into(), Alignment::Right),
-                if let Some(val) = val {
-                    mono_text(format!("{name}: {:?}", val.as_str()), Alignment::Left)
-                } else {
-                    mono_text(format!("{name}"), Alignment::Left)
-                }
+                mono_text(format!("{name}: {}", val), Alignment::Left)
             ]
             .spacing(10),
-            _ => continue,
+            Structure::Component(name, None) => {
+                row![mono_text(format!("{name}"), Alignment::Left)].spacing(10)
+            }
+            _ => {
+                info!("skipping {:?}", item);
+                continue;
+            }
         };
         col = col.push(t);
     }
 
-    col
+    col.into()
 }
 
 fn on_action(action: Action) -> Message {

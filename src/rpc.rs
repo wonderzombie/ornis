@@ -1,5 +1,7 @@
 use std::collections::HashMap;
+use std::fmt::Debug;
 
+use log::info;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json::{Map, Value};
 
@@ -10,8 +12,8 @@ use crate::{
 
 use anyhow::Result;
 
-pub trait BrpRequestExt: Serialize {
-    type Response: DeserializeOwned;
+pub trait BrpRequestExt: Serialize + Debug {
+    type Response: DeserializeOwned + Debug;
 
     const METHOD: &'static str;
     fn into_message(resp: Self::Response) -> Message;
@@ -28,6 +30,8 @@ pub fn send<P: BrpRequestExt>(req_params: P) -> Result<Message> {
 
     let client = reqwest::blocking::Client::new();
     let j = client.post(URL).json(&req).send()?.json()?;
+
+    info!("response: {:?}", j);
 
     Ok(P::into_message(j))
 }

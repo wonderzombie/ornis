@@ -20,7 +20,7 @@ use iced::{
     },
 };
 use log::{LevelFilter, info, trace, warn};
-use serde_json::Value;
+use serde_json::{Map, Value};
 use simple_logger::{self};
 use std::collections::BTreeMap;
 use std::fmt::Write;
@@ -51,7 +51,7 @@ enum Structure {
 
 const CRATE_PATH: &str = "wanderrust";
 
-const MAX_RESULTS: usize = 100;
+const MAX_RESULTS: usize = 25;
 
 impl Default for Ornis {
     fn default() -> Self {
@@ -342,12 +342,12 @@ fn update(state: &mut Ornis, message: Message) -> Task<Message> {
             let out = serde_json::to_string_pretty::<BrpQueryResponse>(&resp);
             if let Ok(out) = out {
                 state.update_scrollback(out);
-                let update_task = update_structured_view(state, &resp);
-                return snap_to_end(MAIN_OUTPUT_ID).chain(update_task);
             }
+            let update_task = update_structured_view(state, &resp);
+            return snap_to_end(MAIN_OUTPUT_ID).chain(update_task);
         }
-        Message::LoadRegistry(brp_registry_resp) => {
-            load_registry(state, brp_registry_resp);
+        Message::LoadRegistry(BrpRegistryResponse { result }) => {
+            load_registry(state, result);
         }
         Message::CommandPrev => {
             state.text_input = state
@@ -399,9 +399,9 @@ fn update(state: &mut Ornis, message: Message) -> Task<Message> {
     Task::none()
 }
 
-fn load_registry(state: &mut Ornis, registry_resp: BrpRegistryResponse) {
+fn load_registry(state: &mut Ornis, map: Map<String, Value>) {
     let mut ntypes = 0;
-    for (ty, type_info) in registry_resp.result.iter() {
+    for (ty, type_info) in map.iter() {
         let o = match type_info.as_object() {
             Some(o) => o,
             None => {

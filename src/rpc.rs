@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::fmt::Debug;
 
-use log::info;
+use log::trace;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json::{Map, Value};
 
@@ -34,7 +34,7 @@ pub fn send<P: BrpRequestExt>(req_params: P) -> Result<Message> {
     let client = reqwest::blocking::Client::new();
     let j = client.post(URL).json(&req).send()?.json()?;
 
-    info!("response: {:?}", j);
+    trace!("response: {:?}", j);
 
     Ok(P::into_message(j))
 }

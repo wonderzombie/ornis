@@ -1,7 +1,6 @@
 mod methods;
 mod params;
 mod rpc;
-mod types;
 
 use anyhow::{Result, anyhow, bail};
 use iced::widget::text;
@@ -341,8 +340,9 @@ fn update(state: &mut Ornis, message: Message) -> Task<Message> {
             resp.result.truncate(MAX_RESULTS);
             let out = serde_json::to_string_pretty::<BrpQueryResponse>(&resp);
             if let Ok(out) = out {
-                state.update_scrollback(out);
+                info!("{}", out);
             }
+            state.update_scrollback(format!("{} results", resp.result.len()));
             let update_task = update_structured_view(state, &resp);
             return snap_to_end(MAIN_OUTPUT_ID).chain(update_task);
         }
@@ -488,11 +488,14 @@ fn structured_view(state: &Ornis) -> Element<'_, Message> {
             Structure::Entity(id) => {
                 row![mono_text(format!("‣ {}", id), Alignment::Left)].spacing(10)
             }
-            Structure::Component(name, Some(val)) => row![
-                mono_text("   •".into(), Alignment::Right),
-                mono_text(format!("{name}: {}", val), Alignment::Left)
-            ]
-            .spacing(10),
+            Structure::Component(name, Some(val)) => {
+                let p = serde_json::to_string_pretty(val).unwrap_or(val.to_string());
+                row![
+                    mono_text("   •".into(), Alignment::Right),
+                    mono_text(format!("{name}: {p}"), Alignment::Left)
+                ]
+                .spacing(10)
+            }
             Structure::Component(name, None) => {
                 row![mono_text(name.to_string(), Alignment::Left)].spacing(10)
             }

@@ -24,7 +24,7 @@ pub fn send<P: BrpRequestExt>(req_params: P) -> Result<Message> {
     let req = BrpRequest {
         jsonrpc: JSONRPC_VER.to_string(),
         method: P::METHOD.to_owned(),
-        params: params,
+        params,
         ..Default::default()
     };
 

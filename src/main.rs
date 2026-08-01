@@ -158,7 +158,7 @@ define_commands! (
 
 fn handle_command(ornis: &mut Ornis) -> Result<Message> {
     let words: Vec<&str> = ornis.text_input.split_ascii_whitespace().collect();
-    let Some(command) = words.first().and_then(|it| Command::from_str(*it)) else {
+    let Some(command) = words.first().and_then(|it| Command::from_str(it)) else {
         warn!("unrecognized command: {:?}", words);
         return Ok(Message::Noop);
     };
@@ -190,7 +190,7 @@ fn print_help(_words: &[&str], _current_ns: impl AsRef<str>) -> Message {
         writeln!(out, "- {} ({})\n\t{}", aliases, c.name(), c.help_short(),).unwrap();
     }
 
-    writeln!(out, "").unwrap();
+    writeln!(out).unwrap();
 
     writeln!(
         out,
@@ -202,7 +202,7 @@ fn print_help(_words: &[&str], _current_ns: impl AsRef<str>) -> Message {
     Message::PrintHelp(out)
 }
 
-const JSONRPC_VER: &'static str = "2.0";
+const JSONRPC_VER: &str = "2.0";
 
 fn query_type_registry(words: &Vec<&str>, lookup: &BTreeMap<String, Value>) -> Message {
     info!("querying registry for strings: {words:?}");
@@ -238,8 +238,7 @@ fn handle_list_components(words: &Vec<&str>, _ns: impl AsRef<str>) -> Result<Mes
     trace!("handle_list_components");
 
     let entity_str = words
-        .iter()
-        .nth(1)
+        .get(1)
         .ok_or(anyhow!("entity name missing from {words:?}"))?;
 
     let entity = i64::from_str_radix(entity_str, 10).unwrap_or_default();
@@ -254,7 +253,7 @@ fn get_typepath(registry: &BTreeMap<String, Value>, key: &str) -> Option<String>
         .as_object()?
         .get("typePath")?
         .as_str()
-        .map(|it| String::from(it))
+        .map(String::from)
 }
 
 fn handle_world_query(words: &Vec<&str>, registry: &BTreeMap<String, Value>) -> Result<Message> {
@@ -433,10 +432,10 @@ fn load_registry(state: &mut Ornis, registry_resp: BrpRegistryResponse) {
 
         state
             .registry
-            .insert(short_name.to_lowercase().into(), type_info.clone());
+            .insert(short_name.to_lowercase(), type_info.clone());
         state
             .registry
-            .insert(type_path.to_lowercase().into(), type_info.clone());
+            .insert(type_path.to_lowercase(), type_info.clone());
         ntypes += 1;
     }
 
@@ -499,7 +498,7 @@ fn structured_view(state: &Ornis) -> Element<'_, Message> {
             ]
             .spacing(10),
             Structure::Component(name, None) => {
-                row![mono_text(format!("{name}"), Alignment::Left)].spacing(10)
+                row![mono_text(name.to_string(), Alignment::Left)].spacing(10)
             }
             _ => {
                 info!("skipping {:?}", item);

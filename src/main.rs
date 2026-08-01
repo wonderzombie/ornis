@@ -2,7 +2,7 @@ mod methods;
 mod params;
 mod rpc;
 
-use anyhow::{anyhow, bail};
+use anyhow::{Result, anyhow, bail};
 use iced::widget::text;
 use iced::{
     Element, Event, Font,
@@ -18,12 +18,13 @@ use iced::{
         text_input,
     },
 };
-use log::{LevelFilter, error, info, trace, warn};
+use log::{LevelFilter, info, trace, warn};
 use methods::*;
 use reqwest::{
     self,
     blocking::{self},
 };
+use serde::de::DeserializeOwned;
 use serde_json::Value;
 use simple_logger::{self};
 use std::collections::BTreeMap;
@@ -92,6 +93,10 @@ enum Message {
     Delegate(Action),
     PrintHelp(String),
     Error(String),
+}
+
+fn decode<T: DeserializeOwned>(value: Value, wrap: impl FnOnce(T) -> Message) -> Result<Message> {
+    Ok(wrap(serde_json::from_value::<T>(value)?))
 }
 
 macro_rules! define_commands {
@@ -249,7 +254,7 @@ fn handle_list_components(
     let client = reqwest::blocking::Client::new();
     let http_resp = client.post(URL).json(&req).send()?;
 
-    handle_list_components_resp(http_resp)
+    decode(http_resp.json()?, Message::ComponentsList)
 }
 
 fn get_typepath(registry: &BTreeMap<String, Value>, key: &str) -> Option<String> {
@@ -286,11 +291,9 @@ fn handle_world_query(
     trace!("json: {}", json);
 
     let client = reqwest::blocking::Client::new();
-    let resp = client.post(URL).json(&req).send()?;
+    let value = client.post(URL).json(&req).send()?.json()?;
 
-    trace!("http resp: {:?}", resp);
-
-    handle_query_resp(resp)
+    decode(value, Message::QueryResults)
 }
 
 fn resolve_query(
@@ -317,37 +320,23 @@ fn resolve_query(
     Ok(resolved)
 }
 
-fn handle_query_resp(response: blocking::Response) -> Result<Message, anyhow::Error> {
+fn handle_resp(response: blocking::Response) -> Result<Message, anyhow::Error> {
     let val: Value = response.json()?;
     info!("json resp: {:?}", val);
+    let results = serde_json::from_value(val)?;
 
-    match serde_json::from_value(val) {
-        Ok(results) => {
-            trace!("BrpQueryResponse: {:?}", results);
-            Ok(Message::QueryResults(results))
-        }
-        Err(err) => {
-            error!("handle_query_resp: {}", err);
-            Err(anyhow!(err))
-        }
-    }
-}
+    Ok(Message::QueryResults(results))
 
-fn handle_list_components_resp(response: blocking::Response) -> Result<Message, anyhow::Error> {
-    let val: Value = response.json().unwrap();
-
-    trace!("retrieved value: {val:?}");
-
-    match serde_json::from_value(val) {
-        Ok(results) => {
-            trace!("response val: {:?}", results);
-            Ok(Message::ComponentsList(results))
-        }
-        Err(err) => {
-            error!("{}", err);
-            Err(anyhow!(err))
-        }
-    }
+    // match serde_json::from_value(val) {
+    //     Ok(results) => {
+    //         trace!("BrpQueryResponse: {:?}", results);
+    //         Ok(Message::QueryResults(results))
+    //     }
+    //     Err(err) => {
+    //         error!("handle_query_resp: {}", err);
+    //         Err(anyhow!(err))
+    //     }
+    // }
 }
 
 fn update_pane(state: &mut Ornis, resp: &BrpQueryResponse) -> Task<Message> {

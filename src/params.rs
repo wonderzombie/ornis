@@ -1,5 +1,6 @@
 use anyhow::bail;
-use log::{info, trace};
+use log::info;
+use log::trace;
 
 use crate::rpc::QueryParams;
 

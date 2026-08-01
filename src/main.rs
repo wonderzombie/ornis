@@ -69,6 +69,13 @@ impl Default for Ornis {
     }
 }
 
+impl Ornis {
+    fn update_scrollback(&mut self, txt: String) {
+        self.scrollback.push(txt);
+        self.text_content = Content::with_text(self.scrollback.join("\n").as_str());
+    }
+}
+
 #[derive(Debug, Default, Clone)]
 enum Message {
     #[default]
@@ -124,6 +131,15 @@ macro_rules! define_commands {
                     $( $variant => $help, )+
                 }
             }
+
+            pub(crate) fn names(&self) -> &[&'static str] {
+                use $enum_name::*;
+                match self {
+                    $(
+                        $variant => &[ $( $name, )* ],
+                    )*
+                }
+            }
         }
 
     };
@@ -135,6 +151,7 @@ define_commands! (
         ListComponents => [ names: ["lc", "l", "world.list_components", "list_components"], help_short: "list components w/ data on a single entity"],
         ListRegistry => [ names: ["lr", "lreg", "listreg"], help_short: "show types reported by bevy remote protocol" ],
         SearchRegistry => [names: ["sr", "sreg", "searchreg"], help_short: "query registry of types via substring match"],
+        ReloadRegistry => [names: ["rl", "rlreg", "reloadreg"], help_short: "reload the registry from bevy"],
         PrintHelp => [names: ["?", "help"], help_short: "print this help"],
     ]
 );
@@ -154,6 +171,7 @@ fn handle_command(ornis: &mut Ornis) -> Result<Message> {
         Command::ListRegistry => Ok(Message::ListRegistry),
         Command::SearchRegistry => Ok(query_type_registry(&words, &ornis.registry)),
         Command::PrintHelp => Ok(print_help(&words, &ornis.current_ns)),
+        Command::ReloadRegistry => handle_registry_req(),
     }
 }
 
@@ -163,12 +181,20 @@ fn print_help(_words: &[&str], _current_ns: impl AsRef<str>) -> Message {
     writeln!(out, "Ornis commands:").unwrap();
 
     for c in Command::ALL {
-        writeln!(out, "{} => {}", c.name(), c.help_short()).unwrap();
+        let aliases = c
+            .names()
+            .iter()
+            .map(|it| it.to_string())
+            .collect::<Vec<_>>()
+            .join(", ");
+        writeln!(out, "- {} ({})\n\t{}", aliases, c.name(), c.help_short(),).unwrap();
     }
+
+    writeln!(out, "").unwrap();
 
     writeln!(
         out,
-        "NB: `If you see empty results, check the component you're querying in the source. #[reflect(Component)]` is required for types used in queries to show their data, and it's not the default."
+        "NB: If you see empty results, check the component you're querying in the source. #[reflect(Component)]` is required for types used in queries to show their data, and it's not the default."
     ).unwrap();
 
     info!("help is: {}", out);
@@ -291,15 +317,11 @@ fn update_structured_view(state: &mut Ornis, resp: &BrpQueryResponse) -> Task<Me
 fn update(state: &mut Ornis, message: Message) -> Task<Message> {
     match message {
         Message::Error(e) => {
-            state.scrollback.push(format!("!! {e}"));
-            state.text_content = Content::with_text(state.scrollback.join("\n").as_str());
+            state.update_scrollback(format!("!! {e}"));
             return snap_to_end(MAIN_OUTPUT_ID);
         }
         Message::EnterPressed => {
-            state
-                .scrollback
-                .push(format!("> {}", state.text_input.clone()));
-            state.text_content = Content::with_text(state.scrollback.join("\n").as_str());
+            state.update_scrollback(format!("> {}", state.text_input.clone()));
             state.command_hist.push(state.text_input.clone());
             state.hist_idx = 0;
             let out = match handle_command(state) {
@@ -314,22 +336,18 @@ fn update(state: &mut Ornis, message: Message) -> Task<Message> {
         }
         Message::WindowOpened => {
             info!("welcome to ornis");
-            state.scrollback = vec!["=== welcome to ornis ===".into()];
-            state.text_content = Content::with_text(state.scrollback.join("\n").as_str());
-            let out = handle_registry_req()
+            state.update_scrollback("=== welcome to ornis ===".to_string());
+            let registry_message = handle_registry_req()
                 .unwrap_or(Message::Error("unable to read registry from bevy".into()));
             // TODO: map the Result's error type to `Message::Error`.
-            return focus(MAIN_INPUT_ID).chain(Task::done(out));
+            return focus(MAIN_INPUT_ID).chain(Task::done(registry_message));
         }
         Message::QueryResults(mut resp) => {
             resp.result.truncate(MAX_RESULTS);
             let out = serde_json::to_string_pretty::<BrpQueryResponse>(&resp);
             if let Ok(out) = out {
-                state.scrollback.push(out);
-                state.text_content = Content::with_text(state.scrollback.join("\n").as_str());
-
+                state.update_scrollback(out);
                 let update_task = update_structured_view(state, &resp);
-
                 return snap_to_end(MAIN_OUTPUT_ID).chain(update_task);
             }
         }
@@ -362,8 +380,7 @@ fn update(state: &mut Ornis, message: Message) -> Task<Message> {
             for component in result {
                 out.push_str(&format!("{component}\n"));
             }
-            state.scrollback.push(out);
-            state.text_content = Content::with_text(state.scrollback.join("\n").as_str());
+            state.update_scrollback(out);
             return snap_to_end(MAIN_OUTPUT_ID);
         }
         Message::ListRegistry => {
@@ -371,18 +388,15 @@ fn update(state: &mut Ornis, message: Message) -> Task<Message> {
             for ty in state.registry.keys() {
                 out.push_str(&format!("{ty}\n"));
             }
-            state.scrollback.push(out);
-            state.text_content = Content::with_text(state.scrollback.join("\n").as_str());
+            state.update_scrollback(out);
             return snap_to_end(MAIN_OUTPUT_ID);
         }
         Message::QueryRegistry(output) => {
-            state.scrollback.push(output);
-            state.text_content = Content::with_text(state.scrollback.join("\n").as_str());
+            state.update_scrollback(output);
             return snap_to_end(MAIN_OUTPUT_ID);
         }
         Message::PrintHelp(msg) => {
-            state.scrollback.push(msg);
-            state.text_content = Content::with_text(state.scrollback.join("\n").as_str());
+            state.update_scrollback(msg);
             return snap_to_end(MAIN_OUTPUT_ID);
         }
         _ => return Task::none(),
@@ -427,6 +441,7 @@ fn load_registry(state: &mut Ornis, registry_resp: BrpRegistryResponse) {
     }
 
     info!("registered info for {ntypes} types");
+    state.update_scrollback(format!("registered info for {ntypes} types"));
 }
 
 const MAIN_INPUT_ID: &str = "main_input";

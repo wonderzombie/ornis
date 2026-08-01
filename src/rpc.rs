@@ -6,11 +6,14 @@ use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json::{Map, Value};
 
 use crate::{
-    JSONRPC_VER, Message, URL,
+    Message,
     methods::{BRP_LIST_COMPONENTS_METHOD, BRP_QUERY_METHOD, BRP_REGISTRY_SCHEMA_METHOD},
 };
 
 use anyhow::Result;
+
+const JSONRPC_VER: &str = "2.0";
+const URL: &str = "http://localhost:15702";
 
 pub trait BrpRequestExt: Serialize + Debug {
     type Response: DeserializeOwned + Debug;

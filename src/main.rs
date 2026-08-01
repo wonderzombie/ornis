@@ -1,6 +1,7 @@
 mod methods;
 mod params;
 mod rpc;
+mod types;
 
 use anyhow::{Result, anyhow, bail};
 use iced::widget::text;
@@ -47,8 +48,6 @@ enum Structure {
     Entity(String),
     Component(String, Option<Value>),
 }
-
-const URL: &str = "http://localhost:15702";
 
 const CRATE_PATH: &str = "wanderrust";
 
@@ -202,14 +201,12 @@ fn print_help(_words: &[&str], _current_ns: impl AsRef<str>) -> Message {
     Message::PrintHelp(out)
 }
 
-const JSONRPC_VER: &str = "2.0";
-
 fn query_type_registry(words: &Vec<&str>, lookup: &BTreeMap<String, Value>) -> Message {
     info!("querying registry for strings: {words:?}");
     let mut out = String::new();
 
     for word in words.iter().skip(1) {
-        out.push_str(&format!("### RESULTS FOR {word} ###\n"));
+        out.push_str(&format!("### matches for `{word}` ###\n"));
         for ty in lookup.keys() {
             if ty.to_lowercase().contains(&word.to_lowercase()) {
                 out.push_str(&format!("\t- {ty}\n"))
@@ -219,7 +216,7 @@ fn query_type_registry(words: &Vec<&str>, lookup: &BTreeMap<String, Value>) -> M
 
     if out.is_empty() {
         info!("no results for any of {words:?}");
-        out.push_str(&format!("### No results for any word in {words:?} ###\n"));
+        out.push_str(&format!("### no matches for any word in {words:?} ###\n"));
     }
 
     Message::QueryRegistry(out)
@@ -274,7 +271,6 @@ fn resolve_query(
     let mut resolved = Vec::new();
     let mut unknown = Vec::new();
     for w in words.iter().skip(1) {
-        // TODO: use ? alongside Result
         let (ty, name) = QParam::parse(w)?;
 
         match name.strip_prefix('!') {

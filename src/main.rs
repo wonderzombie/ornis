@@ -19,12 +19,6 @@ use iced::{
     },
 };
 use log::{LevelFilter, info, trace, warn};
-use methods::*;
-use reqwest::{
-    self,
-    blocking::{self},
-};
-use serde::de::DeserializeOwned;
 use serde_json::Value;
 use simple_logger::{self};
 use std::collections::BTreeMap;
@@ -93,10 +87,6 @@ enum Message {
     Delegate(Action),
     PrintHelp(String),
     Error(String),
-}
-
-fn decode<T: DeserializeOwned>(value: Value, wrap: impl FnOnce(T) -> Message) -> Result<Message> {
-    Ok(wrap(serde_json::from_value::<T>(value)?))
 }
 
 macro_rules! define_commands {
@@ -208,23 +198,12 @@ fn handle_query_registry(words: &Vec<&str>, lookup: &BTreeMap<String, Value>) ->
 }
 
 fn handle_registry_req() -> Result<Message, anyhow::Error> {
-    let client = reqwest::blocking::Client::new();
-
-    let params = serde_json::to_value(RegistryParams {
+    let params = RegistryParams {
         with_crates: vec!["wanderrust".into()],
-        ..Default::default()
-    })?;
-
-    let req = BrpRequest {
-        jsonrpc: JSONRPC_VER.to_string(),
-        method: BRP_REGISTRY_SCHEMA_METHOD.to_string(),
-        params,
         ..Default::default()
     };
 
-    let j = client.post(URL).json(&req).send()?.json()?;
-
-    Ok(Message::LoadRegistry(j))
+    send(params)
 }
 
 fn handle_list_components(
@@ -241,20 +220,8 @@ fn handle_list_components(
     let entity = i64::from_str_radix(entity_str, 10).unwrap_or_default();
     trace!("querying for entity {entity_str} as {entity:?}");
 
-    let params = serde_json::to_value(ListComponentsParams { entity })?;
-
-    let req = BrpRequest {
-        jsonrpc: JSONRPC_VER.to_string(),
-        method: BRP_LIST_COMPONENTS_METHOD.to_string(),
-        params,
-        ..Default::default()
-    };
-    trace!("outgoing request: {req:?}");
-
-    let client = reqwest::blocking::Client::new();
-    let http_resp = client.post(URL).json(&req).send()?;
-
-    decode(http_resp.json()?, Message::ComponentsList)
+    let req = ListComponentsParams { entity };
+    rpc::send(req)
 }
 
 fn get_typepath(registry: &BTreeMap<String, Value>, key: &str) -> Option<String> {
@@ -273,27 +240,11 @@ fn handle_world_query(
     info!("handle_world_query {words:?}");
 
     let resolved = resolve_query(words, registry)?;
-    let query_params = params::collect(resolved);
 
+    let query_params = params::collect(resolved);
     info!("assembled query parameters: {query_params:?}");
 
-    let params = serde_json::to_value(query_params)?;
-
-    let req = BrpRequest {
-        jsonrpc: JSONRPC_VER.to_string(),
-        method: BRP_QUERY_METHOD.to_string(),
-        params,
-        ..Default::default()
-    };
-
-    let json = serde_json::to_string_pretty(&req)?;
-    trace!("{:?}", req);
-    trace!("json: {}", json);
-
-    let client = reqwest::blocking::Client::new();
-    let value = client.post(URL).json(&req).send()?.json()?;
-
-    decode(value, Message::QueryResults)
+    rpc::send(query_params)
 }
 
 fn resolve_query(
@@ -318,25 +269,6 @@ fn resolve_query(
         bail!(format!("unknown component(s): {}", unknown.join(" ")));
     }
     Ok(resolved)
-}
-
-fn handle_resp(response: blocking::Response) -> Result<Message, anyhow::Error> {
-    let val: Value = response.json()?;
-    info!("json resp: {:?}", val);
-    let results = serde_json::from_value(val)?;
-
-    Ok(Message::QueryResults(results))
-
-    // match serde_json::from_value(val) {
-    //     Ok(results) => {
-    //         trace!("BrpQueryResponse: {:?}", results);
-    //         Ok(Message::QueryResults(results))
-    //     }
-    //     Err(err) => {
-    //         error!("handle_query_resp: {}", err);
-    //         Err(anyhow!(err))
-    //     }
-    // }
 }
 
 fn update_pane(state: &mut Ornis, resp: &BrpQueryResponse) -> Task<Message> {

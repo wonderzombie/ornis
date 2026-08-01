@@ -10,18 +10,18 @@ use crate::{
 
 use anyhow::Result;
 
-trait BrpRequestExt {
+pub trait BrpRequestExt: Serialize {
     type Response: DeserializeOwned;
 
     const METHOD: &'static str;
     fn into_message(resp: Self::Response) -> Message;
 }
 
-fn send<R: BrpRequestExt + Serialize>(req: R) -> Result<Message> {
-    let params = serde_json::to_value(req)?;
+pub fn send<P: BrpRequestExt>(req_params: P) -> Result<Message> {
+    let params = serde_json::to_value(req_params)?;
     let req = BrpRequest {
         jsonrpc: JSONRPC_VER.to_string(),
-        method: R::METHOD.to_owned(),
+        method: P::METHOD.to_owned(),
         params: params,
         ..Default::default()
     };
@@ -29,11 +29,7 @@ fn send<R: BrpRequestExt + Serialize>(req: R) -> Result<Message> {
     let client = reqwest::blocking::Client::new();
     let j = client.post(URL).json(&req).send()?.json()?;
 
-    Ok(R::into_message(j))
-}
-
-fn decode<T: DeserializeOwned>(value: Value, wrap: impl FnOnce(T) -> Message) -> Result<Message> {
-    Ok(wrap(serde_json::from_value::<T>(value)?))
+    Ok(P::into_message(j))
 }
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize, PartialEq)]
@@ -69,8 +65,8 @@ pub(crate) struct BrpQueryResponse {
     pub(crate) result: Vec<BrpEntity>,
 }
 
-impl BrpRequestExt for BrpQueryResponse {
-    type Response = Self;
+impl BrpRequestExt for QueryParams {
+    type Response = BrpQueryResponse;
 
     const METHOD: &'static str = BRP_QUERY_METHOD;
 
@@ -105,8 +101,8 @@ pub(crate) struct BrpRegistryResponse {
     pub(crate) result: Map<String, Value>,
 }
 
-impl BrpRequestExt for BrpRegistryResponse {
-    type Response = Self;
+impl BrpRequestExt for RegistryParams {
+    type Response = BrpRegistryResponse;
 
     const METHOD: &'static str = BRP_REGISTRY_SCHEMA_METHOD;
 
@@ -125,8 +121,8 @@ pub(crate) struct BrpListComponentsResponse {
     pub(crate) result: Vec<String>,
 }
 
-impl BrpRequestExt for BrpListComponentsResponse {
-    type Response = Self;
+impl BrpRequestExt for ListComponentsParams {
+    type Response = BrpListComponentsResponse;
 
     const METHOD: &'static str = BRP_LIST_COMPONENTS_METHOD;
 

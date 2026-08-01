@@ -137,7 +137,7 @@ define_commands! (
     ]
 );
 
-fn handle_command(ornis: &mut Ornis) -> Result<Message, anyhow::Error> {
+fn handle_command(ornis: &mut Ornis) -> Result<Message> {
     let words: Vec<&str> = ornis.text_input.split_ascii_whitespace().collect();
     let Some(command) = words.first().and_then(|it| Command::from_str(*it)) else {
         warn!("unrecognized command: {:?}", words);
@@ -150,12 +150,12 @@ fn handle_command(ornis: &mut Ornis) -> Result<Message, anyhow::Error> {
         Command::WorldQuery => handle_world_query(&words, &ornis.registry),
         Command::ListComponents => handle_list_components(&words, &ornis.current_ns),
         Command::ListRegistry => Ok(Message::ListRegistry),
-        Command::SearchRegistry => Ok(handle_query_registry(&words, &ornis.registry)),
-        Command::PrintHelp => Ok(handle_print_help(&words, &ornis.current_ns)),
+        Command::SearchRegistry => Ok(query_type_registry(&words, &ornis.registry)),
+        Command::PrintHelp => Ok(print_help(&words, &ornis.current_ns)),
     }
 }
 
-fn handle_print_help(_words: &[&str], _current_ns: impl AsRef<str>) -> Message {
+fn print_help(_words: &[&str], _current_ns: impl AsRef<str>) -> Message {
     let mut out = String::new();
 
     writeln!(out, "Ornis commands:").unwrap();
@@ -176,7 +176,7 @@ fn handle_print_help(_words: &[&str], _current_ns: impl AsRef<str>) -> Message {
 
 const JSONRPC_VER: &'static str = "2.0";
 
-fn handle_query_registry(words: &Vec<&str>, lookup: &BTreeMap<String, Value>) -> Message {
+fn query_type_registry(words: &Vec<&str>, lookup: &BTreeMap<String, Value>) -> Message {
     info!("querying registry for strings: {words:?}");
     let mut out = String::new();
 
@@ -197,7 +197,7 @@ fn handle_query_registry(words: &Vec<&str>, lookup: &BTreeMap<String, Value>) ->
     Message::QueryRegistry(out)
 }
 
-fn handle_registry_req() -> Result<Message, anyhow::Error> {
+fn handle_registry_req() -> Result<Message> {
     let params = RegistryParams {
         with_crates: vec!["wanderrust".into()],
         ..Default::default()
@@ -206,10 +206,7 @@ fn handle_registry_req() -> Result<Message, anyhow::Error> {
     send(params)
 }
 
-fn handle_list_components(
-    words: &Vec<&str>,
-    _ns: impl AsRef<str>,
-) -> Result<Message, anyhow::Error> {
+fn handle_list_components(words: &Vec<&str>, _ns: impl AsRef<str>) -> Result<Message> {
     trace!("handle_list_components");
 
     let entity_str = words
@@ -233,10 +230,7 @@ fn get_typepath(registry: &BTreeMap<String, Value>, key: &str) -> Option<String>
         .map(|it| String::from(it))
 }
 
-fn handle_world_query(
-    words: &Vec<&str>,
-    registry: &BTreeMap<String, Value>,
-) -> Result<Message, anyhow::Error> {
+fn handle_world_query(words: &Vec<&str>, registry: &BTreeMap<String, Value>) -> Result<Message> {
     info!("handle_world_query {words:?}");
 
     let resolved = resolve_query(words, registry)?;
@@ -250,7 +244,7 @@ fn handle_world_query(
 fn resolve_query(
     words: &Vec<&str>,
     registry: &BTreeMap<String, Value>,
-) -> Result<Vec<(QParam, String)>, anyhow::Error> {
+) -> Result<Vec<(QParam, String)>> {
     let mut resolved = Vec::new();
     let mut unknown = Vec::new();
     for w in words.iter().skip(1) {

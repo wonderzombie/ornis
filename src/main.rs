@@ -25,7 +25,7 @@ use std::collections::BTreeMap;
 use std::fmt::Write;
 
 use crate::params::QParam;
-use crate::rpc::*;
+use crate::rpc::BrpRequestExt;
 
 #[derive(Debug, Clone)]
 pub struct Ornis {
@@ -82,9 +82,7 @@ enum Message {
     ContentChanged(String),
     WindowOpened,
     WindowClosed,
-    QueryResults(BrpQueryResponse),
-    ComponentsList(BrpListComponentsResponse),
-    LoadRegistry(BrpRegistryResponse),
+    BrpResponse(rpc::Message),
     ListRegistry,
     QueryRegistry(String),
     OutputChanged,
@@ -149,7 +147,7 @@ define_commands! (
         ListComponents => [ names: ["lc", "l", "world.list_components", "list_components"], help_short: "list components w/ data on a single entity"],
         ListRegistry => [ names: ["lr", "lreg", "listreg"], help_short: "show types reported by bevy remote protocol" ],
         SearchRegistry => [names: ["sr", "sreg", "searchreg"], help_short: "query registry of types via substring match"],
-        ReloadRegistry => [names: ["rl", "rlreg", "reloadreg"], help_short: "reload the registry from bevy"],
+        LoadRpcSchema => [names: ["rl", "rlreg", "reloadreg"], help_short: "reload the registry from bevy"],
         PrintHelp => [names: ["?", "help"], help_short: "print this help"],
     ]
 );
@@ -164,12 +162,12 @@ fn handle_command(ornis: &mut Ornis) -> Result<Message> {
     info!("command: {command:?}");
 
     match command {
-        Command::WorldQuery => handle_world_query(&words, &ornis.registry),
-        Command::ListComponents => handle_list_components(&words, &ornis.current_ns),
+        Command::WorldQuery => send_world_query_request(&words, &ornis.registry),
+        Command::ListComponents => send_list_components_request(&words, &ornis.current_ns),
+        Command::LoadRpcSchema => send_rpc_schema_request(),
         Command::ListRegistry => Ok(Message::ListRegistry),
         Command::SearchRegistry => Ok(query_type_registry(&words, &ornis.registry)),
         Command::PrintHelp => Ok(print_help(&words, &ornis.current_ns)),
-        Command::ReloadRegistry => handle_registry_req(),
     }
 }
 
@@ -185,7 +183,7 @@ fn print_help(_words: &[&str], _current_ns: impl AsRef<str>) -> Message {
             .map(|it| it.to_string())
             .collect::<Vec<_>>()
             .join(", ");
-        writeln!(out, "- {} ({})\n\t{}", aliases, c.name(), c.help_short(),).unwrap();
+        writeln!(out, "- {} ({})\n\t{}", aliases, c.name(), c.help_short()).unwrap();
     }
 
     writeln!(out).unwrap();
@@ -221,8 +219,12 @@ fn query_type_registry(words: &Vec<&str>, lookup: &BTreeMap<String, Value>) -> M
     Message::QueryRegistry(out)
 }
 
-fn handle_registry_req() -> Result<Message> {
-    let params = RegistryParams {
+fn send<P: BrpRequestExt>(req: P) -> Result<Message> {
+    rpc::send(req, Message::BrpResponse)
+}
+
+fn send_rpc_schema_request() -> Result<Message> {
+    let params = rpc::RegistryParams {
         with_crates: vec!["wanderrust".into()],
         ..Default::default()
     };
@@ -230,7 +232,7 @@ fn handle_registry_req() -> Result<Message> {
     send(params)
 }
 
-fn handle_list_components(words: &Vec<&str>, _ns: impl AsRef<str>) -> Result<Message> {
+fn send_list_components_request(words: &Vec<&str>, _ns: impl AsRef<str>) -> Result<Message> {
     trace!("handle_list_components");
 
     let entity_str = words
@@ -240,7 +242,7 @@ fn handle_list_components(words: &Vec<&str>, _ns: impl AsRef<str>) -> Result<Mes
     let entity = i64::from_str_radix(entity_str, 10).unwrap_or_default();
     trace!("querying for entity {entity_str} as {entity:?}");
 
-    rpc::send(ListComponentsParams { entity })
+    send(rpc::ListComponentsParams { entity })
 }
 
 fn get_typepath(registry: &BTreeMap<String, Value>, key: &str) -> Option<String> {
@@ -252,18 +254,21 @@ fn get_typepath(registry: &BTreeMap<String, Value>, key: &str) -> Option<String>
         .map(String::from)
 }
 
-fn handle_world_query(words: &Vec<&str>, registry: &BTreeMap<String, Value>) -> Result<Message> {
+fn send_world_query_request(
+    words: &Vec<&str>,
+    registry: &BTreeMap<String, Value>,
+) -> Result<Message> {
     info!("handle_world_query {words:?}");
 
-    let resolved = resolve_query(words, registry)?;
+    let resolved = resolve_world_query(words, registry)?;
 
     let query_params = params::collect(resolved);
     info!("assembled query parameters: {query_params:?}");
 
-    rpc::send(query_params)
+    send(query_params)
 }
 
-fn resolve_query(
+fn resolve_world_query(
     words: &Vec<&str>,
     registry: &BTreeMap<String, Value>,
 ) -> Result<Vec<(QParam, String)>> {
@@ -286,10 +291,10 @@ fn resolve_query(
     Ok(resolved)
 }
 
-fn update_structured_view(state: &mut Ornis, resp: &BrpQueryResponse) -> Task<Message> {
+fn update_structured_view(state: &mut Ornis, entities: &Vec<rpc::BrpEntity>) -> Task<Message> {
     let mut structures: Vec<Structure> = vec![];
 
-    for entity in resp.result.iter() {
+    for entity in entities {
         structures.push(Structure::Entity(format!("{}", entity.id)));
         for (name, val_opt) in &entity.components {
             structures.push(Structure::Component(name.clone(), val_opt.clone()));
@@ -308,6 +313,31 @@ fn update_structured_view(state: &mut Ornis, resp: &BrpQueryResponse) -> Task<Me
     Task::done(Message::UpdatePane)
 }
 
+fn handle_rpc_message(state: &mut Ornis, m: rpc::Message) -> Task<Message> {
+    match m {
+        rpc::Message::Query(mut resp) => {
+            resp.result.truncate(MAX_RESULTS);
+            if let Ok(out) = serde_json::to_string_pretty::<rpc::BrpQueryResponse>(&resp) {
+                info!("{}", out);
+            }
+            state.update_scrollback(format!("{} results", resp.result.len()));
+            return update_structured_view(state, &resp.result);
+        }
+        rpc::Message::ListComponents(rpc::BrpListComponentsResponse { result }) => {
+            let out = result
+                .iter()
+                .map(|c| format!("{c}"))
+                .collect::<Vec<_>>()
+                .join("\n");
+            state.update_scrollback(out);
+        }
+        rpc::Message::RegistrySchema(rpc::BrpRegistrySchemaResponse { result }) => {
+            load_registry(state, result);
+        }
+    }
+    Task::none()
+}
+
 fn update(state: &mut Ornis, message: Message) -> Task<Message> {
     match message {
         Message::Error(e) => {
@@ -320,7 +350,7 @@ fn update(state: &mut Ornis, message: Message) -> Task<Message> {
             state.hist_idx = 0;
             let out = match handle_command(state) {
                 Ok(m) => Task::done(m),
-                Err(e) => Task::done(Message::Error(format!("error handling command: {e}"))),
+                Err(e) => Task::done(Message::Error(e.to_string())),
             };
             state.text_input.clear();
             return out;
@@ -331,23 +361,14 @@ fn update(state: &mut Ornis, message: Message) -> Task<Message> {
         Message::WindowOpened => {
             info!("welcome to ornis");
             state.update_scrollback("=== welcome to ornis ===".to_string());
-            let registry_message = handle_registry_req()
-                .unwrap_or(Message::Error("unable to read registry from bevy".into()));
-            // TODO: map the Result's error type to `Message::Error`.
-            return focus(MAIN_INPUT_ID).chain(Task::done(registry_message));
+            let schema_task = match send_rpc_schema_request() {
+                Ok(m) => Task::done(m),
+                Err(e) => Task::done(Message::Error(e.to_string())),
+            };
+            return focus(MAIN_INPUT_ID).chain(schema_task);
         }
-        Message::QueryResults(mut resp) => {
-            resp.result.truncate(MAX_RESULTS);
-            let out = serde_json::to_string_pretty::<BrpQueryResponse>(&resp);
-            if let Ok(out) = out {
-                info!("{}", out);
-            }
-            state.update_scrollback(format!("{} results", resp.result.len()));
-            let update_task = update_structured_view(state, &resp);
-            return snap_to_end(MAIN_OUTPUT_ID).chain(update_task);
-        }
-        Message::LoadRegistry(BrpRegistryResponse { result }) => {
-            load_registry(state, result);
+        Message::BrpResponse(rpc_message) => {
+            return handle_rpc_message(state, rpc_message);
         }
         Message::CommandPrev => {
             state.text_input = state
@@ -370,14 +391,6 @@ fn update(state: &mut Ornis, message: Message) -> Task<Message> {
         Message::Delegate(action) => state.text_content.perform(action),
         Message::OutputChanged => return snap_to_end(MAIN_OUTPUT_ID),
         Message::UpdatePane => return Task::none(),
-        Message::ComponentsList(BrpListComponentsResponse { result }) => {
-            let mut out = String::new();
-            for component in result {
-                out.push_str(&format!("{component}\n"));
-            }
-            state.update_scrollback(out);
-            return snap_to_end(MAIN_OUTPUT_ID);
-        }
         Message::ListRegistry => {
             let mut out = String::new();
             for ty in state.registry.keys() {

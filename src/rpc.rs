@@ -5,15 +5,19 @@ use log::trace;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json::{Map, Value};
 
-use crate::{
-    Message,
-    methods::{BRP_LIST_COMPONENTS_METHOD, BRP_QUERY_METHOD, BRP_REGISTRY_SCHEMA_METHOD},
-};
+use crate::methods::{BRP_LIST_COMPONENTS_METHOD, BRP_QUERY_METHOD, BRP_REGISTRY_SCHEMA_METHOD};
 
 use anyhow::Result;
 
 const JSONRPC_VER: &str = "2.0";
 const URL: &str = "http://localhost:15702";
+
+#[derive(Debug, Clone)]
+pub(crate) enum Message {
+    Query(BrpQueryResponse),
+    ListComponents(BrpListComponentsResponse),
+    RegistrySchema(BrpRegistrySchemaResponse),
+}
 
 pub trait BrpRequestExt: Serialize + Debug {
     type Response: DeserializeOwned + Debug;
@@ -22,7 +26,7 @@ pub trait BrpRequestExt: Serialize + Debug {
     fn into_message(resp: Self::Response) -> Message;
 }
 
-pub fn send<P: BrpRequestExt>(req_params: P) -> Result<Message> {
+pub fn send<P: BrpRequestExt, T>(req_params: P, f: impl FnOnce(Message) -> T) -> Result<T> {
     let params = serde_json::to_value(req_params)?;
     let req = BrpRequest {
         jsonrpc: JSONRPC_VER.to_string(),
@@ -36,7 +40,7 @@ pub fn send<P: BrpRequestExt>(req_params: P) -> Result<Message> {
 
     trace!("response: {:?}", j);
 
-    Ok(P::into_message(j))
+    Ok(f(P::into_message(j)))
 }
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize, PartialEq)]
@@ -78,7 +82,7 @@ impl BrpRequestExt for QueryParams {
     const METHOD: &'static str = BRP_QUERY_METHOD;
 
     fn into_message(resp: Self::Response) -> Message {
-        Message::QueryResults(resp)
+        Message::Query(resp)
     }
 }
 
@@ -104,17 +108,17 @@ pub(crate) struct RegistryTypeLimit {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
-pub(crate) struct BrpRegistryResponse {
+pub(crate) struct BrpRegistrySchemaResponse {
     pub(crate) result: Map<String, Value>,
 }
 
 impl BrpRequestExt for RegistryParams {
-    type Response = BrpRegistryResponse;
+    type Response = BrpRegistrySchemaResponse;
 
     const METHOD: &'static str = BRP_REGISTRY_SCHEMA_METHOD;
 
     fn into_message(resp: Self::Response) -> Message {
-        Message::LoadRegistry(resp)
+        Message::RegistrySchema(resp)
     }
 }
 
@@ -134,6 +138,6 @@ impl BrpRequestExt for ListComponentsParams {
     const METHOD: &'static str = BRP_LIST_COMPONENTS_METHOD;
 
     fn into_message(resp: Self::Response) -> Message {
-        Message::ComponentsList(resp)
+        Message::ListComponents(resp)
     }
 }

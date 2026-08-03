@@ -225,7 +225,12 @@ fn send<P: BrpRequestExt>(req: P) -> Result<Message> {
 
 fn send_rpc_schema_request() -> Result<Message> {
     let params = rpc::RegistryParams {
-        with_crates: vec!["wanderrust".into()],
+        with_crates: vec![
+            "bevy_ecs".into(),
+            "bevy_camera".into(),
+            "bevy_northstar".into(),
+            "wanderrust".into(),
+        ],
         ..Default::default()
     };
 
@@ -321,6 +326,14 @@ fn handle_rpc_message(state: &mut Ornis, m: rpc::Message) -> Task<Message> {
                 info!("{}", out);
             }
             state.update_scrollback(format!("{} results", resp.result.len()));
+            let entities = resp
+                .result
+                .iter()
+                .map(|it| format!("{:?} [{:?}]", it.id, it.components.keys()))
+                .collect::<Vec<_>>()
+                .join("\n");
+            state.update_scrollback(format!("{}", entities));
+
             return update_structured_view(state, &resp.result);
         }
         rpc::Message::ListComponents(rpc::BrpListComponentsResponse { result }) => {
@@ -390,7 +403,9 @@ fn update(state: &mut Ornis, message: Message) -> Task<Message> {
         }
         Message::Delegate(action) => state.text_content.perform(action),
         Message::OutputChanged => return snap_to_end(MAIN_OUTPUT_ID),
-        Message::UpdatePane => return Task::none(),
+        Message::UpdatePane => {
+            return snap_to_end(MAIN_OUTPUT_ID);
+        }
         Message::ListRegistry => {
             let mut out = String::new();
             for ty in state.registry.keys() {

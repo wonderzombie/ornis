@@ -18,7 +18,7 @@ use iced::{
         text_input,
     },
 };
-use log::{LevelFilter, info, trace, warn};
+use log::{LevelFilter, debug, info, trace, warn};
 use serde_json::{Map, Value};
 use simple_logger::{self};
 use std::collections::BTreeMap;
@@ -145,10 +145,12 @@ define_commands! (
     Command, [
         WorldQuery => [ names: ["q", "wq", "world.query", "query"], help_short: "query for entities which have one or more component" ],
         ListComponents => [ names: ["lc", "l", "world.list_components", "list_components"], help_short: "list components w/ data on a single entity"],
-        ListRegistry => [ names: ["lr", "lreg", "listreg"], help_short: "show types reported by bevy remote protocol" ],
+        ListRegistry => [ names: ["lrg", "lreg", "listreg"], help_short: "show types reported by bevy remote protocol" ],
         SearchRegistry => [names: ["sr", "sreg", "searchreg"], help_short: "query registry of types via substring match"],
         LoadRpcSchema => [names: ["rl", "rlreg", "reloadreg"], help_short: "reload the registry from bevy"],
         PrintHelp => [names: ["?", "help"], help_short: "print this help"],
+        ListResources => [ names: ["lrs", "lsres", "listres"], help_short: "list resources"],
+        GetResources => [ names: ["grs", "gres", "getres"], help_short: "list resources"],
     ]
 );
 
@@ -168,6 +170,8 @@ fn handle_command(ornis: &mut Ornis) -> Result<Message> {
         Command::ListRegistry => Ok(Message::ListRegistry),
         Command::SearchRegistry => Ok(query_type_registry(&words, &ornis.registry)),
         Command::PrintHelp => Ok(print_help(&words, &ornis.current_ns)),
+        Command::ListResources => send_list_resources_request(),
+        Command::GetResources => send_get_resources_request(&words),
     }
 }
 
@@ -190,8 +194,20 @@ fn print_help(_words: &[&str], _current_ns: impl AsRef<str>) -> Message {
 
     writeln!(
         out,
-        "NB: If you see empty results, check the component you're querying in the source. #[reflect(Component)]` is required for types used in queries to show their data, and it's not the default."
+        "An empty result quite often means that the type in question hasn't been configured for reflection, meaning the remote protocol can't send a representation of it."
     ).unwrap();
+
+    writeln!(
+        out,
+        "For `Component` or `Resource`, this can mean deriving Reflect and adding `#[reflect(Component)]` or `Resource`."
+    )
+    .unwrap();
+
+    writeln!(
+        out,
+        "However, it won't work if either datatype includes a type which is NOT suitable for reflection or serde."
+    )
+    .unwrap();
 
     info!("help is: {}", out);
 
@@ -245,9 +261,22 @@ fn send_list_components_request(words: &Vec<&str>, _ns: impl AsRef<str>) -> Resu
         .ok_or(anyhow!("entity name missing from {words:?}"))?;
 
     let entity = i64::from_str_radix(entity_str, 10).unwrap_or_default();
-    trace!("querying for entity {entity_str} as {entity:?}");
+    debug!("querying for entity {entity_str} as {entity:?}");
 
     send(rpc::ListComponentsParams { entity })
+}
+
+fn send_list_resources_request() -> Result<Message> {
+    send(rpc::BrpListResourcesParams)
+}
+
+fn send_get_resources_request(words: &[&str]) -> Result<Message> {
+    let resource = match words.get(1) {
+        Some(r) => r.to_string(),
+        None => bail!("missing argument for resource: {words:?}"),
+    };
+
+    send(rpc::BrpGetResourcesParams { resource })
 }
 
 fn get_typepath(registry: &BTreeMap<String, Value>, key: &str) -> Option<String> {
@@ -347,7 +376,17 @@ fn handle_rpc_message(state: &mut Ornis, m: rpc::Message) -> Task<Message> {
         rpc::Message::RegistrySchema(rpc::BrpRegistrySchemaResponse { result }) => {
             load_registry(state, result);
         }
-        _ => todo!(),
+        rpc::Message::ListResources(rpc::BrpListResourcesResponse { result }) => {
+            let out = result.join("\n");
+            state.update_scrollback(out);
+        }
+        rpc::Message::GetResources(rpc::BrpGetResourcesResponse { ref result }) => {
+            let out = match serde_json::to_string_pretty(result) {
+                Ok(s) => s,
+                Err(_) => result.to_string(),
+            };
+            state.update_scrollback(out);
+        }
     }
     Task::none()
 }
@@ -566,6 +605,7 @@ fn main() -> iced::Result {
     simple_logger::SimpleLogger::new()
         .with_level(LevelFilter::Off)
         .with_module_level("ornis", LevelFilter::Info)
+        .with_module_level("rpc", LevelFilter::Debug)
         .init()
         .unwrap();
     println!("initialized logging");

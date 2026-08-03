@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::fmt::Debug;
 
-use log::trace;
+use log::debug;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json::{Map, Value};
 
@@ -41,11 +41,13 @@ pub fn send<P: BrpRequestExt, T>(req_params: P, f: impl FnOnce(Message) -> T) ->
     };
 
     let client = reqwest::blocking::Client::new();
-    let j = client.post(URL).json(&req).send()?.json()?;
+    let j = client.post(URL).json(&req).send()?.text()?;
 
-    trace!("response: {:?}", j);
+    debug!("response: {:?}", j);
 
-    Ok(f(P::into_message(j)))
+    let json = serde_json::from_str::<<P as BrpRequestExt>::Response>(&j)?;
+
+    Ok(f(P::into_message(json)))
 }
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize, PartialEq)]
@@ -172,7 +174,7 @@ pub(crate) struct BrpGetResourcesParams {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
 pub(crate) struct BrpGetResourcesResponse {
-    pub(crate) value: Value,
+    pub(crate) result: Value,
 }
 
 impl BrpRequestExt for BrpGetResourcesParams {

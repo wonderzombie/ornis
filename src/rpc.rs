@@ -5,7 +5,10 @@ use log::trace;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json::{Map, Value};
 
-use crate::methods::{BRP_LIST_COMPONENTS_METHOD, BRP_QUERY_METHOD, BRP_REGISTRY_SCHEMA_METHOD};
+use crate::methods::{
+    BRP_GET_RESOURCES_METHOD, BRP_LIST_COMPONENTS_METHOD, BRP_LIST_RESOURCES_METHOD,
+    BRP_QUERY_METHOD, BRP_REGISTRY_SCHEMA_METHOD,
+};
 
 use anyhow::Result;
 
@@ -17,6 +20,8 @@ pub(crate) enum Message {
     Query(BrpQueryResponse),
     ListComponents(BrpListComponentsResponse),
     RegistrySchema(BrpRegistrySchemaResponse),
+    ListResources(BrpListResourcesResponse),
+    GetResources(BrpGetResourcesResponse),
 }
 
 pub trait BrpRequestExt: Serialize + Debug {
@@ -139,5 +144,43 @@ impl BrpRequestExt for ListComponentsParams {
 
     fn into_message(resp: Self::Response) -> Message {
         Message::ListComponents(resp)
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
+pub(crate) struct BrpListResourcesParams;
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
+pub(crate) struct BrpListResourcesResponse {
+    pub(crate) result: Vec<String>,
+}
+
+impl BrpRequestExt for BrpListResourcesParams {
+    type Response = BrpListResourcesResponse;
+
+    const METHOD: &'static str = BRP_LIST_RESOURCES_METHOD;
+
+    fn into_message(resp: Self::Response) -> Message {
+        Message::ListResources(resp)
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
+pub(crate) struct BrpGetResourcesParams {
+    pub(crate) resource: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
+pub(crate) struct BrpGetResourcesResponse {
+    pub(crate) value: Value,
+}
+
+impl BrpRequestExt for BrpGetResourcesParams {
+    type Response = BrpGetResourcesResponse;
+
+    const METHOD: &'static str = BRP_GET_RESOURCES_METHOD;
+
+    fn into_message(resp: Self::Response) -> Message {
+        Message::GetResources(resp)
     }
 }

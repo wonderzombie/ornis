@@ -347,6 +347,7 @@ fn handle_rpc_message(state: &mut Ornis, m: rpc::Message) -> Task<Message> {
         rpc::Message::RegistrySchema(rpc::BrpRegistrySchemaResponse { result }) => {
             load_registry(state, result);
         }
+        _ => todo!(),
     }
     Task::none()
 }

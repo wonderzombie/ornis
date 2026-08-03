@@ -33,7 +33,7 @@ pub const BRP_GET_COMPONENTS_AND_WATCH_METHOD: &str = "world.get_components+watc
 pub const BRP_LIST_COMPONENTS_AND_WATCH_METHOD: &str = "world.list_components+watch";
 
 /// The method path for a `world.get_resources` request.
-pub const BRP_GET_RESOURCE_METHOD: &str = "world.get_resources";
+pub const BRP_GET_RESOURCES_METHOD: &str = "world.get_resources";
 
 /// The method path for a `world.insert_resources` request.
 pub const BRP_INSERT_RESOURCE_METHOD: &str = "world.insert_resources";

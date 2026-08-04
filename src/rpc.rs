@@ -5,11 +5,7 @@ use log::debug;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json::{Map, Value};
 
-use crate::methods::{
-    BRP_GET_RESOURCES_METHOD, BRP_LIST_COMPONENTS_METHOD, BRP_LIST_RESOURCES_METHOD,
-    BRP_QUERY_METHOD, BRP_REGISTRY_SCHEMA_METHOD,
-};
-
+use crate::methods::*;
 use anyhow::Result;
 
 const JSONRPC_VER: &str = "2.0";

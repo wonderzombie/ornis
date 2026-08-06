@@ -281,7 +281,7 @@ fn send_get_resources_request(words: &[&str]) -> Result<Message> {
 
 fn get_typepath(registry: &BTreeMap<String, Value>, key: &str) -> Option<String> {
     registry
-        .get(key)?
+        .get(&key.to_lowercase())?
         .as_object()?
         .get("typePath")?
         .as_str()

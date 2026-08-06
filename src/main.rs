@@ -214,7 +214,7 @@ fn print_help(_words: &[&str], _current_ns: impl AsRef<str>) -> Message {
     Message::PrintHelp(out)
 }
 
-fn query_type_registry(words: &Vec<&str>, lookup: &BTreeMap<String, Value>) -> Message {
+fn query_type_registry(words: &[&str], lookup: &BTreeMap<String, Value>) -> Message {
     info!("querying registry for strings: {words:?}");
     let mut out = String::new();
 
@@ -253,7 +253,7 @@ fn send_rpc_schema_request() -> Result<Message> {
     send(params)
 }
 
-fn send_list_components_request(words: &Vec<&str>, _ns: impl AsRef<str>) -> Result<Message> {
+fn send_list_components_request(words: &[&str], _ns: &str) -> Result<Message> {
     trace!("handle_list_components");
 
     let entity_str = words
@@ -288,10 +288,7 @@ fn get_typepath(registry: &BTreeMap<String, Value>, key: &str) -> Option<String>
         .map(String::from)
 }
 
-fn send_world_query_request(
-    words: &Vec<&str>,
-    registry: &BTreeMap<String, Value>,
-) -> Result<Message> {
+fn send_world_query_request(words: &[&str], registry: &BTreeMap<String, Value>) -> Result<Message> {
     info!("handle_world_query {words:?}");
 
     let resolved = resolve_world_query(words, registry)?;
@@ -303,7 +300,7 @@ fn send_world_query_request(
 }
 
 fn resolve_world_query(
-    words: &Vec<&str>,
+    words: &[&str],
     registry: &BTreeMap<String, Value>,
 ) -> Result<Vec<(QParam, String)>> {
     let mut resolved = Vec::new();

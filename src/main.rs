@@ -21,7 +21,7 @@ use iced::{
 use log::{LevelFilter, debug, info, trace, warn};
 use serde_json::{Map, Value};
 use simple_logger::{self};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt::Write;
 
 use crate::params::QParam;
@@ -151,6 +151,7 @@ define_commands! (
         PrintHelp => [names: ["?", "help"], help_short: "print this help"],
         ListResources => [ names: ["lrs", "lsres", "listres"], help_short: "list resources"],
         GetResources => [ names: ["grs", "gres", "getres"], help_short: "list resources"],
+        GetComponents => [ names: ["gcs", "gcom"], help_short: "read components for an entity"]
     ]
 );
 
@@ -172,6 +173,7 @@ fn handle_command(ornis: &mut Ornis) -> Result<Message> {
         Command::PrintHelp => Ok(print_help(&words, &ornis.current_ns)),
         Command::ListResources => send_list_resources_request(),
         Command::GetResources => send_get_resources_request(&words),
+        Command::GetComponents => send_get_components_request(&words, &ornis.registry),
     }
 }
 
@@ -279,6 +281,31 @@ fn send_get_resources_request(words: &[&str]) -> Result<Message> {
     send(rpc::BrpGetResourcesParams { resource })
 }
 
+fn send_get_components_request(
+    words: &[&str],
+    registry: &BTreeMap<String, Value>,
+    // ns: &str,
+) -> Result<Message> {
+    // For this entity ...
+    let entity: i64 = match words.get(1) {
+        Some(w) => w.parse::<i64>()?,
+        None => bail!("entity required for this command"),
+    };
+
+    // ...request these components.
+    let components: Vec<String> = words
+        .iter()
+        .skip(1)
+        .flat_map(|it| get_typepath(registry, it))
+        .collect();
+
+    send(rpc::BrpGetComponentsParams {
+        entity,
+        components,
+        strict: false,
+    })
+}
+
 fn get_typepath(registry: &BTreeMap<String, Value>, key: &str) -> Option<String> {
     registry
         .get(&key.to_lowercase())?
@@ -328,7 +355,7 @@ fn update_structured_view(state: &mut Ornis, entities: &Vec<rpc::BrpEntity>) -> 
     for entity in entities {
         structures.push(Structure::Entity(format!("{}", entity.id)));
         for (name, val_opt) in &entity.components {
-            structures.push(Structure::Component(name.clone(), val_opt.clone()));
+            structures.push(Structure::Component(name.clone(), Some(val_opt.clone())));
         }
 
         if let Some(has) = &entity.has {
@@ -355,7 +382,15 @@ fn handle_rpc_message(state: &mut Ornis, m: rpc::Message) -> Task<Message> {
             let entities = resp
                 .result
                 .iter()
-                .map(|it| format!("{:?} [{:?}]", it.id, it.components.keys()))
+                .map(|it| {
+                    format!(
+                        "{:?} {}",
+                        it.id,
+                        serde_json::to_string_pretty(&it.components)
+                            .ok()
+                            .unwrap_or_default()
+                    )
+                })
                 .collect::<Vec<_>>()
                 .join("\n");
             state.update_scrollback(format!("{}", entities));
@@ -383,6 +418,10 @@ fn handle_rpc_message(state: &mut Ornis, m: rpc::Message) -> Task<Message> {
                 Err(_) => result.to_string(),
             };
             state.update_scrollback(out);
+        }
+        rpc::Message::GetComponents(rpc::BrpGetComponentsResponse { ref result }) => {
+            let component_map = result.get("components").and_then(|it| it.as_object());
+            state.update_scrollback(format!("{component_map:#?}"));
         }
     }
     Task::none()
@@ -444,11 +483,20 @@ fn update(state: &mut Ornis, message: Message) -> Task<Message> {
             return snap_to_end(MAIN_OUTPUT_ID);
         }
         Message::ListRegistry => {
-            let mut out = String::new();
-            for ty in state.registry.keys() {
-                out.push_str(&format!("{ty}\n"));
-            }
-            state.update_scrollback(out);
+            let mut out: Vec<String> = vec![];
+            let type_paths = state
+                .registry
+                .values()
+                .flat_map(|v| v.as_object()?.get("typePath")?.as_str())
+                .collect::<HashSet<_>>();
+
+            type_paths.iter().for_each(|type_path| {
+                out.push(format!("{type_path}"));
+            });
+
+            out.sort();
+
+            state.update_scrollback(out.join("\n"));
             return snap_to_end(MAIN_OUTPUT_ID);
         }
         Message::QueryRegistry(output) => {

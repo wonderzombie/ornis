@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::fmt::Debug;
 
-use log::debug;
+use log::{debug, info};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json::{Map, Value};
 
@@ -40,7 +40,7 @@ pub fn send<P: BrpRequestExt, T>(req_params: P, f: impl FnOnce(Message) -> T) ->
     let client = reqwest::blocking::Client::new();
     let j = client.post(URL).json(&req).send()?.text()?;
 
-    debug!("response: {:?}", j);
+    info!("response: {:?}", j);
 
     let json = serde_json::from_str::<<P as BrpRequestExt>::Response>(&j)?;
 
@@ -92,7 +92,7 @@ impl BrpRequestExt for QueryParams {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub(crate) struct BrpEntity {
-    pub(crate) components: HashMap<String, Option<Value>>,
+    pub(crate) components: HashMap<String, Value>,
     #[serde(rename = "entity")]
     pub(crate) id: i64,
     pub(crate) has: Option<HashMap<String, bool>>,
@@ -150,11 +150,12 @@ impl BrpRequestExt for ListComponentsParams {
 pub(crate) struct BrpGetComponentsParams {
     pub(crate) entity: i64,
     pub(crate) components: Vec<String>,
+    pub(crate) strict: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
 pub(crate) struct BrpGetComponentsResponse {
-    pub(crate) components: Map<String, Value>,
+    pub(crate) result: Map<String, Value>,
 }
 
 impl BrpRequestExt for BrpGetComponentsParams {

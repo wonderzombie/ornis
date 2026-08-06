@@ -18,6 +18,7 @@ pub(crate) enum Message {
     RegistrySchema(BrpRegistrySchemaResponse),
     ListResources(BrpListResourcesResponse),
     GetResources(BrpGetResourcesResponse),
+    GetComponents(BrpGetComponentsResponse),
 }
 
 pub trait BrpRequestExt: Serialize + Debug {
@@ -142,6 +143,27 @@ impl BrpRequestExt for ListComponentsParams {
 
     fn into_message(resp: Self::Response) -> Message {
         Message::ListComponents(resp)
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
+pub(crate) struct BrpGetComponentsParams {
+    pub(crate) entity: i64,
+    pub(crate) components: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
+pub(crate) struct BrpGetComponentsResponse {
+    pub(crate) components: Map<String, Value>,
+}
+
+impl BrpRequestExt for BrpGetComponentsParams {
+    type Response = BrpGetComponentsResponse;
+
+    const METHOD: &'static str = "world.get_components";
+
+    fn into_message(resp: Self::Response) -> Message {
+        Message::GetComponents(resp)
     }
 }
 

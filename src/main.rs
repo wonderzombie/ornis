@@ -21,7 +21,7 @@ use iced::{
 use log::{LevelFilter, debug, info, trace, warn};
 use serde_json::{Map, Value};
 use simple_logger::{self};
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, HashSet};
 use std::fmt::Write;
 
 use crate::params::QParam;
@@ -244,11 +244,16 @@ fn send<P: BrpRequestExt>(req: P) -> Result<Message> {
 fn send_rpc_schema_request() -> Result<Message> {
     let params = rpc::RegistryParams {
         with_crates: vec![
+            "bevy_app".into(),
             "bevy_ecs".into(),
             "bevy_camera".into(),
+            "bevy_picking".into(),
+            "bevy_state".into(),
+            "bevy_ui".into(),
             "bevy_northstar".into(),
             "wanderrust".into(),
         ],
+        without_crates: vec!["glam".into()],
         ..Default::default()
     };
 
@@ -372,28 +377,20 @@ fn update_structured_view(state: &mut Ornis, entities: &Vec<rpc::BrpEntity>) -> 
 }
 
 fn handle_rpc_message(state: &mut Ornis, m: rpc::Message) -> Task<Message> {
+    state.scrollback.clear();
     match m {
         rpc::Message::Query(mut resp) => {
             resp.result.truncate(MAX_RESULTS);
             if let Ok(out) = serde_json::to_string_pretty::<rpc::BrpQueryResponse>(&resp) {
                 info!("{}", out);
             }
-            state.update_scrollback(format!("{} results", resp.result.len()));
             let entities = resp
                 .result
                 .iter()
-                .map(|it| {
-                    format!(
-                        "{:?} {}",
-                        it.id,
-                        serde_json::to_string_pretty(&it.components)
-                            .ok()
-                            .unwrap_or_default()
-                    )
-                })
+                .map(|it| format!("{:?} {:#?}", it.id, &it.components))
                 .collect::<Vec<_>>()
                 .join("\n");
-            state.update_scrollback(format!("{}", entities));
+            state.update_scrollback(format!("{} results\n{}", resp.result.len(), entities));
 
             return update_structured_view(state, &resp.result);
         }

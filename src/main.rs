@@ -19,7 +19,7 @@ use iced::{
         text_input,
     },
 };
-use log::{LevelFilter, debug, info, trace, warn};
+use log::{LevelFilter, debug, error, info, trace, warn};
 use serde_json::{Map, Value};
 use simple_logger::{self};
 use std::collections::{BTreeMap, HashSet};
@@ -95,6 +95,8 @@ enum Message {
     Delegate(Action),
     PrintHelp(String),
     Error(String),
+    ShowConfig,
+    ReloadConfig,
 }
 
 macro_rules! define_commands {
@@ -154,7 +156,9 @@ define_commands! (
         PrintHelp => [names: ["?", "help"], help_short: "print this help"],
         ListResources => [ names: ["lrs", "lsres", "listres"], help_short: "list resources"],
         GetResources => [ names: ["grs", "gres", "getres"], help_short: "list resources"],
-        GetComponents => [ names: ["gcs", "gcom"], help_short: "read components for an entity"]
+        GetComponents => [ names: ["gcs", "gcom"], help_short: "read components for an entity"],
+        ShowConfig => [ names: ["cfg", "showcfg"], help_short: "show currently used ornis configuration"],
+        ReloadConfig => [ names: ["rlcfg"], help_short: "reload config from disk"],
     ]
 );
 
@@ -177,6 +181,8 @@ fn handle_command(ornis: &mut Ornis) -> Result<Message> {
         Command::ListResources => send_list_resources_request(),
         Command::GetResources => send_get_resources_request(&words),
         Command::GetComponents => send_get_components_request(&words, &ornis.registry),
+        Command::ShowConfig => Ok(Message::ShowConfig),
+        Command::ReloadConfig => Ok(Message::ReloadConfig),
     }
 }
 
@@ -514,6 +520,17 @@ fn update(state: &mut Ornis, message: Message) -> Task<Message> {
         Message::PrintHelp(msg) => {
             state.update_scrollback(msg);
             return snap_to_end(MAIN_OUTPUT_ID);
+        }
+        Message::ShowConfig => match toml::to_string_pretty(&state.config) {
+            Ok(c) => state.update_scrollback(c),
+            Err(e) => {
+                error!("unable to print config: {e}");
+                state.update_scrollback(format!("unable to print config: {e}"));
+            }
+        },
+        Message::ReloadConfig => {
+            state.config = load_config(config::CONFIG_PATH);
+            state.update_scrollback(format!("reloaded config at {}", config::CONFIG_PATH));
         }
         _ => return Task::none(),
     }

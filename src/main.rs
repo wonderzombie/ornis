@@ -159,6 +159,7 @@ define_commands! (
         GetComponents => [ names: ["gcs", "gcom"], help_short: "read components for an entity"],
         ShowConfig => [ names: ["cfg", "showcfg"], help_short: "show currently used ornis configuration"],
         ReloadConfig => [ names: ["rlcfg"], help_short: "reload config from disk"],
+        SetNamespace => [ names: ["setns"], help_short: "set the in-memory configuration's namespace"]
     ]
 );
 
@@ -185,7 +186,20 @@ fn handle_command(ornis: &mut Ornis) -> Result<Message> {
         Command::GetComponents => send_get_components_request(&words, &ornis.registry),
         Command::ShowConfig => Ok(Message::ShowConfig),
         Command::ReloadConfig => Ok(Message::ReloadConfig),
+        Command::SetNamespace => set_namespace(&words, &mut ornis.config),
     }
+}
+
+fn set_namespace(words: &[&str], config: &mut Config) -> Result<Message> {
+    let Some(ns) = words.get(1) else {
+        return Ok(Message::Error(
+            "SetNamespace takes one argument; found none".into(),
+        ));
+    };
+
+    config.current_ns = ns.to_string();
+
+    Ok(Message::Noop)
 }
 
 fn print_help(_words: &[&str], _current_ns: impl AsRef<str>) -> Message {

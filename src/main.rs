@@ -163,7 +163,9 @@ define_commands! (
 );
 
 fn handle_command(ornis: &mut Ornis) -> Result<Message> {
-    let words: Vec<&str> = ornis.text_input.split_ascii_whitespace().collect();
+    let w = ornis.text_input.to_ascii_lowercase();
+    let words: Vec<&str> = w.split_ascii_whitespace().collect();
+
     let Some(command) = words.first().and_then(|it| Command::from_str(it)) else {
         warn!("unrecognized command: {:?}", words);
         return Ok(Message::Noop);

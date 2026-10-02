@@ -24,7 +24,9 @@ use serde_json::{Map, Value};
 use simple_logger::{self};
 use std::collections::{BTreeMap, HashSet};
 use std::fmt::Write;
+use std::path::PathBuf;
 
+use crate::config::{Config, write_default_config};
 use crate::params::QParam;
 use crate::rpc::BrpRequestExt;
 
@@ -34,11 +36,13 @@ pub struct Ornis {
     scrollback: Vec<String>,
     text_input: String,
     text_content: Content,
-    current_ns: String,
     command_hist: Vec<String>,
     hist_idx: usize,
     last_response: Vec<Structure>,
     registry: BTreeMap<String, Value>,
+
+    // Configuration state
+    config: Config,
 }
 
 #[derive(Default, Debug, Clone)]
@@ -49,8 +53,6 @@ enum Structure {
     Component(String, Option<Value>),
 }
 
-const CRATE_PATH: &str = "wanderrust";
-
 const MAX_RESULTS: usize = 25;
 
 impl Default for Ornis {
@@ -59,11 +61,11 @@ impl Default for Ornis {
             scrollback: Default::default(),
             text_input: Default::default(),
             text_content: Default::default(),
-            current_ns: CRATE_PATH.into(),
             command_hist: Default::default(),
             hist_idx: Default::default(),
             last_response: Default::default(),
             registry: Default::default(),
+            config: Config::default(),
         }
     }
 }
@@ -167,11 +169,11 @@ fn handle_command(ornis: &mut Ornis) -> Result<Message> {
 
     match command {
         Command::WorldQuery => send_world_query_request(&words, &ornis.registry),
-        Command::ListComponents => send_list_components_request(&words, &ornis.current_ns),
-        Command::LoadRpcSchema => send_rpc_schema_request(),
+        Command::ListComponents => send_list_components_request(&words, &ornis.config.current_ns),
+        Command::LoadRpcSchema => send_rpc_schema_request(&ornis.config),
         Command::ListRegistry => Ok(Message::ListRegistry),
         Command::SearchRegistry => Ok(query_type_registry(&words, &ornis.registry)),
-        Command::PrintHelp => Ok(print_help(&words, &ornis.current_ns)),
+        Command::PrintHelp => Ok(print_help(&words, &ornis.config.current_ns)),
         Command::ListResources => send_list_resources_request(),
         Command::GetResources => send_get_resources_request(&words),
         Command::GetComponents => send_get_components_request(&words, &ornis.registry),
@@ -242,19 +244,10 @@ fn send<P: BrpRequestExt>(req: P) -> Result<Message> {
     rpc::send(req, Message::BrpResponse)
 }
 
-fn send_rpc_schema_request() -> Result<Message> {
+fn send_rpc_schema_request(config: &Config) -> Result<Message> {
     let params = rpc::RegistryParams {
-        with_crates: vec![
-            "bevy_app".into(),
-            "bevy_ecs".into(),
-            "bevy_camera".into(),
-            "bevy_picking".into(),
-            "bevy_state".into(),
-            "bevy_ui".into(),
-            "bevy_northstar".into(),
-            "wanderrust".into(),
-        ],
-        without_crates: vec!["glam".into()],
+        with_crates: config.with_crates.clone(),
+        without_crates: config.without_crates.clone(),
         ..Default::default()
     };
 
@@ -425,6 +418,19 @@ fn handle_rpc_message(state: &mut Ornis, m: rpc::Message) -> Task<Message> {
     Task::none()
 }
 
+pub fn load_config(path_str: impl AsRef<str>) -> Config {
+    let pb = PathBuf::from(path_str.as_ref());
+    config::try_load_config(&pb)
+        .or_else(|e| {
+            warn!("unable to load config at {pb:?}; writing default config and using that: {e}");
+            write_default_config(&pb)
+        })
+        .inspect_err(|e| {
+            warn!("unable to write config at {pb:?}; using default, in-memory config: {e}");
+        })
+        .unwrap_or_default()
+}
+
 fn update(state: &mut Ornis, message: Message) -> Task<Message> {
     match message {
         Message::Error(e) => {
@@ -448,10 +454,14 @@ fn update(state: &mut Ornis, message: Message) -> Task<Message> {
         Message::WindowOpened => {
             info!("welcome to ornis");
             state.update_scrollback("=== welcome to ornis ===".to_string());
-            let schema_task = match send_rpc_schema_request() {
+
+            state.config = load_config(config::CONFIG_PATH);
+
+            let schema_task = match send_rpc_schema_request(&state.config) {
                 Ok(m) => Task::done(m),
                 Err(e) => Task::done(Message::Error(e.to_string())),
             };
+
             return focus(MAIN_INPUT_ID).chain(schema_task);
         }
         Message::BrpResponse(rpc_message) => {

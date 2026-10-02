@@ -1,10 +1,9 @@
 use std::path::PathBuf;
 
 use anyhow::Error;
-use log::{info, warn};
 use serde::{Deserialize, Serialize};
 
-const DEFAULT_CONFIG_PATH: &str = "ornis.toml";
+pub const CONFIG_PATH: &str = "ornis.toml";
 
 const DEFAULT_CRATE_PATH: &str = "wanderrust";
 const DEFAULT_WITH_CRATES: &[&'static str] = &[
@@ -18,28 +17,17 @@ const DEFAULT_WITH_CRATES: &[&'static str] = &[
     DEFAULT_CRATE_PATH,
 ];
 
-#[derive(Serialize, Deserialize, Debug)]
-pub(crate) struct Config {
-    pub crate_path: String,
+const DEFAULT_MAX_RESULTS: usize = 25;
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct Config {
+    pub current_ns: String,
     pub with_crates: Vec<String>,
     pub without_crates: Vec<String>,
     pub max_results: usize,
 }
 
-pub fn config(path: impl AsRef<PathBuf>) -> Config {
-    let p = path.as_ref();
-    match try_load_config(p) {
-        Ok(c) => c,
-        Err(e) => {
-            warn!("unable to load config at {p:?}: {e}; using default config");
-            let c = Config::default();
-            info!("config: {c:#?}");
-            c
-        }
-    }
-}
-
-fn try_load_config(path: &PathBuf) -> Result<Config, Error> {
+pub fn try_load_config(path: &PathBuf) -> Result<Config, Error> {
     let s = std::fs::read_to_string(path)?;
     toml::from_str(s.as_ref()).map_err(|e| e.into())
 }
@@ -50,13 +38,17 @@ pub fn write_default_config(path: &PathBuf) -> Result<Config, Error> {
     Ok(Config::default())
 }
 
+fn crates(crates: &[&'static str]) -> Vec<String> {
+    crates.iter().map(|it| it.to_string()).collect::<Vec<_>>()
+}
+
 impl Default for Config {
     fn default() -> Self {
         Self {
-            crate_path: "wanderrust".into(),
-            with_crates: Default::default(),
-            without_crates: Default::default(),
-            max_results: Default::default(),
+            current_ns: "wanderrust".into(),
+            with_crates: crates(DEFAULT_WITH_CRATES),
+            without_crates: crates(Default::default()),
+            max_results: DEFAULT_MAX_RESULTS,
         }
     }
 }

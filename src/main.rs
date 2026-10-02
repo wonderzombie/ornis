@@ -175,7 +175,9 @@ fn handle_command(ornis: &mut Ornis) -> Result<Message> {
     info!("command: {command:?}");
 
     match command {
-        Command::WorldQuery => send_world_query_request(&words, &ornis.registry),
+        Command::WorldQuery => {
+            send_world_query_request(&words, &ornis.registry, &ornis.config.current_ns)
+        }
         Command::ListComponents => send_list_components_request(&words, &ornis.config.current_ns),
         Command::LoadRpcSchema => send_rpc_schema_request(&ornis.config),
         Command::ListRegistry => Ok(Message::ListRegistry),
@@ -284,7 +286,7 @@ fn send_list_components_request(words: &[&str], _ns: &str) -> Result<Message> {
         .ok_or(anyhow!("entity name missing from {words:?}"))?;
 
     let entity = i64::from_str_radix(entity_str, 10).unwrap_or_default();
-    debug!("querying for entity {entity_str} as {entity:?}");
+    info!("querying for entity {entity_str} as {entity:?}");
 
     send(rpc::ListComponentsParams { entity })
 }
@@ -341,10 +343,14 @@ fn get_typepath(registry: &BTreeMap<String, Value>, key: &str) -> Option<String>
         .map(String::from)
 }
 
-fn send_world_query_request(words: &[&str], registry: &BTreeMap<String, Value>) -> Result<Message> {
+fn send_world_query_request(
+    words: &[&str],
+    registry: &BTreeMap<String, Value>,
+    current_ns: &String,
+) -> Result<Message> {
     info!("handle_world_query {words:?}");
 
-    let resolved = resolve_world_query(words, registry)?;
+    let resolved = resolve_world_query(words, registry, current_ns)?;
 
     let query_params = params::collect(resolved);
     info!("assembled query parameters: {query_params:?}");
@@ -355,15 +361,21 @@ fn send_world_query_request(words: &[&str], registry: &BTreeMap<String, Value>) 
 fn resolve_world_query(
     words: &[&str],
     registry: &BTreeMap<String, Value>,
+    current_ns: &String,
 ) -> Result<Vec<(QParam, String)>> {
     let mut resolved = Vec::new();
     let mut unknown = Vec::new();
     for w in words.iter().skip(1) {
         let (ty, name) = QParam::parse(w)?;
 
-        match name.strip_prefix('!') {
+        let name: String = match name.strip_prefix("::") {
+            Some(rest) => format!("{current_ns}::{rest}"),
+            None => name.to_string(),
+        };
+
+        match name.as_str().strip_prefix('!') {
             Some(literal) => resolved.push((ty, literal.to_string())),
-            None => match get_typepath(registry, name) {
+            None => match get_typepath(registry, name.as_str()) {
                 Some(path) => resolved.push((ty, path)),
                 None => unknown.push(name.to_string()),
             },

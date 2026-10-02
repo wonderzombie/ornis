@@ -182,7 +182,7 @@ fn handle_command(ornis: &mut Ornis) -> Result<Message> {
         Command::SearchRegistry => Ok(query_type_registry(&words, &ornis.registry)),
         Command::PrintHelp => Ok(print_help(&words, &ornis.config.current_ns)),
         Command::ListResources => send_list_resources_request(),
-        Command::GetResources => send_get_resources_request(&words),
+        Command::GetResources => send_get_resources_request(&words, &ornis.registry),
         Command::GetComponents => send_get_components_request(&words, &ornis.registry),
         Command::ShowConfig => Ok(Message::ShowConfig),
         Command::ReloadConfig => Ok(Message::ReloadConfig),
@@ -293,9 +293,14 @@ fn send_list_resources_request() -> Result<Message> {
     send(rpc::BrpListResourcesParams)
 }
 
-fn send_get_resources_request(words: &[&str]) -> Result<Message> {
-    let resource = match words.get(1) {
-        Some(r) => r.to_string(),
+fn send_get_resources_request(
+    words: &[&str],
+    registry: &BTreeMap<String, Value>,
+) -> Result<Message> {
+    let ty_opt = words.get(1).and_then(|it| get_typepath(registry, it));
+
+    let resource = match ty_opt {
+        Some(r) => r,
         None => bail!("missing argument for resource: {words:?}"),
     };
 

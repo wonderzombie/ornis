@@ -1,3 +1,4 @@
+mod config;
 mod methods;
 mod params;
 mod rpc;

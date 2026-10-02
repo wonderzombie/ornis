@@ -148,15 +148,15 @@ macro_rules! define_commands {
 
 define_commands! (
     Command, [
-        WorldQuery => [ names: ["q", "wq", "world.query", "query"], help_short: "query for entities which have one or more component" ],
+        WorldQuery => [ names: ["q", "wq", "world.query", "query"], help_short: "query for entities which have one or more component:\nq name transform +sprite" ],
         ListComponents => [ names: ["lc", "l", "world.list_components", "list_components"], help_short: "list components w/ data on a single entity"],
-        ListRegistry => [ names: ["lrg", "lreg", "listreg"], help_short: "show types reported by bevy remote protocol" ],
+        ListRegistry => [ names: ["lt", "lrg", "lreg", "listreg"], help_short: "show types reported by bevy remote protocol" ],
         SearchRegistry => [names: ["sr", "sreg", "searchreg"], help_short: "query registry of types via substring match"],
         LoadRpcSchema => [names: ["rl", "rlreg", "reloadreg"], help_short: "reload the registry from bevy"],
         PrintHelp => [names: ["?", "help"], help_short: "print this help"],
-        ListResources => [ names: ["lrs", "lsres", "listres"], help_short: "list resources"],
+        ListResources => [ names: ["lsrs", "lrs", "lsres", "listres"], help_short: "list resources"],
         GetResources => [ names: ["grs", "gres", "getres"], help_short: "list resources"],
-        GetComponents => [ names: ["gcs", "gcom"], help_short: "read components for an entity"],
+        GetComponents => [ names: ["g", "gc", "gcs", "gcom"], help_short: "read components for an entity:\ng [entity_id] [component]+"],
         ShowConfig => [ names: ["cfg", "showcfg"], help_short: "show currently used ornis configuration"],
         ReloadConfig => [ names: ["rlcfg"], help_short: "reload config from disk"],
         SetNamespace => [ names: ["setns"], help_short: "set the in-memory configuration's namespace"]
@@ -236,7 +236,7 @@ fn print_help(_words: &[&str], _current_ns: impl AsRef<str>) -> Message {
     )
     .unwrap();
 
-    info!("help is: {}", out);
+    debug!("help is: {}", out);
 
     Message::PrintHelp(out)
 }
